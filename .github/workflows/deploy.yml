@@ -1,0 +1,74 @@
+name: Deploy
+
+# Build image rồi deploy MCP server lên Cloud Run.
+# Xác thực bằng Workload Identity Federation — không dùng service account key JSON.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Môi trường deploy
+        type: choice
+        options: [dev, prod]
+        default: dev
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+  APP_NAME: nexlab-recruit
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'dev' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Đăng nhập Artifact Registry
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Build & push
+        env:
+          REGISTRY: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.APP_NAME }}-${{ env.ENVIRONMENT }}
+        run: |
+          IMAGE="$REGISTRY/scan-cv:${{ github.sha }}"
+          docker build -t "$IMAGE" -t "$REGISTRY/scan-cv:latest" backend
+          docker push "$IMAGE"
+          docker push "$REGISTRY/scan-cv:latest"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Deploy Cloud Run
+        run: |
+          gcloud run deploy "${{ env.APP_NAME }}-${{ env.ENVIRONMENT }}-mcp" \
+            --image "$IMAGE" \
+            --region "${{ secrets.GCP_REGION }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --quiet
+
+      - name: Kiểm tra service còn sống
+        run: |
+          URL=$(gcloud run services describe "${{ env.APP_NAME }}-${{ env.ENVIRONMENT }}-mcp" \
+            --region "${{ secrets.GCP_REGION }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --format 'value(status.url)')
+          echo "MCP endpoint: $URL/mcp"
+          curl -fsS "$URL/health" && echo

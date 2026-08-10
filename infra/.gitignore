@@ -1,0 +1,14 @@
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+.terraformrc
+terraform.rc
+
+# tfvars có thể chứa giá trị nhạy cảm — chỉ commit file trong envs/ đã được review.
+*.auto.tfvars
+terraform.tfvars

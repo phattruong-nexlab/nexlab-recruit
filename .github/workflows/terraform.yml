@@ -1,0 +1,181 @@
+name: Terraform
+
+# PR vào develop  → fmt · validate · plan (dán kết quả vào PR, KHÔNG apply)
+# Merge vào develop → plan · apply lên môi trường dev
+# Chạy tay        → chọn môi trường, có thể chỉ plan
+#
+# Trước khi workflow này chạy được lần đầu, phải chạy `infra/bootstrap` bằng tay
+# một lần — xem infra/README.md.
+
+on:
+  pull_request:
+    branches: [develop]
+    paths: ["infra/**", ".github/workflows/terraform.yml"]
+  push:
+    branches: [develop]
+    paths: ["infra/**", ".github/workflows/terraform.yml"]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Môi trường
+        type: choice
+        options: [dev, prod]
+        default: dev
+      apply:
+        description: Apply thật (bỏ tick = chỉ plan)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+# Không huỷ giữa chừng: apply đang chạy mà bị cắt sẽ để lại state khoá.
+concurrency:
+  group: terraform-${{ inputs.environment || 'dev' }}
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: 1.9.8
+  ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+
+defaults:
+  run:
+    working-directory: infra
+
+jobs:
+  # Kiểm tra tĩnh — không cần chạm vào GCP, chạy được cả với PR từ fork.
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Format check
+        run: terraform fmt -check -recursive
+
+      - name: Validate (config chính)
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+
+      - name: Validate (bootstrap)
+        working-directory: infra/bootstrap
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+
+  plan:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'dev' }}
+    outputs:
+      has_changes: ${{ steps.plan.outputs.exitcode == '2' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Init
+        run: terraform init -input=false -backend-config=envs/${{ env.ENVIRONMENT }}/backend.hcl
+
+      - name: Plan
+        id: plan
+        # -detailed-exitcode: 0 = không đổi, 1 = lỗi, 2 = có thay đổi.
+        run: |
+          set +e
+          terraform plan -input=false -no-color -detailed-exitcode -lock-timeout=5m \
+            -var-file=envs/${{ env.ENVIRONMENT }}/${{ env.ENVIRONMENT }}.tfvars \
+            -out=tfplan
+          code=$?
+          set -e
+          echo "exitcode=$code" >> "$GITHUB_OUTPUT"
+          terraform show -no-color tfplan > plan.txt || true
+          [ "$code" = "1" ] && exit 1 || exit 0
+
+      # Apply đúng file plan này, không plan lại — tránh việc apply ra thứ khác
+      # với thứ đã được review.
+      - name: Lưu plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ env.ENVIRONMENT }}
+          path: |
+            infra/tfplan
+            infra/plan.txt
+          retention-days: 5
+
+      - name: Dán plan vào PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('infra/plan.txt', 'utf8');
+            const body = [
+              '### Terraform plan — `${{ env.ENVIRONMENT }}`',
+              '```terraform',
+              plan.length > 60000 ? plan.slice(0, 60000) + '\n... (cắt bớt)' : plan,
+              '```',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
+
+  apply:
+    needs: plan
+    # Chỉ apply khi merge vào develop, hoặc khi chạy tay và tick ô apply.
+    if: |
+      needs.plan.outputs.has_changes == 'true' &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' && inputs.apply))
+    runs-on: ubuntu-latest
+    # GitHub Environment: đặt required reviewer ở đây nếu muốn duyệt tay trước khi apply.
+    environment: ${{ inputs.environment || 'dev' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Init
+        run: terraform init -input=false -backend-config=envs/${{ env.ENVIRONMENT }}/backend.hcl
+
+      - name: Tải lại đúng plan đã duyệt
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ env.ENVIRONMENT }}
+          path: infra
+
+      - name: Apply
+        run: terraform apply -input=false -auto-approve -lock-timeout=5m tfplan
+
+      - name: Tóm tắt
+        run: |
+          {
+            echo "### Terraform apply — \`${{ env.ENVIRONMENT }}\` ✅"
+            echo '```'
+            terraform output -no-color || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

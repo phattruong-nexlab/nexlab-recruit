@@ -1,0 +1,8 @@
+project_id        = "nexlab-poc"
+region            = "asia-southeast1"
+github_repository = "phattruong-nexlab/nexlab-recruit"
+
+# Chỉ hai branch này được phép apply hạ tầng.
+allowed_branches = ["develop", "main"]
+
+state_bucket_name = "nexlab-recruit-tfstate"

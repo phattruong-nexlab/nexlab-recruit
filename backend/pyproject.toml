@@ -1,0 +1,75 @@
+[project]
+name = "nexlab-recruit-backend"
+version = "0.1.0"
+description = "Backend nexlab-recruit — CV extraction pilot (FastAPI, DDD / Clean Architecture)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "python-multipart>=0.0.12",
+    "pymupdf>=1.24",
+    "google-genai>=0.3",
+    "notion-client>=2.2",
+    "mcp>=1.2",
+    "markitdown[docx,pdf]>=0.1.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.27",
+    "ruff>=0.7",
+    "mypy>=1.13",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "TID"]
+
+[tool.ruff.lint.flake8-bugbear]
+# Depends()/File()/Query() trong default arg là idiom chuẩn của FastAPI, không phải bug.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.File",
+    "fastapi.Form",
+    "fastapi.Header",
+    "fastapi.Path",
+    "fastapi.Query",
+]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# Domain phải là pure Python — chặn nhầm lẫn phổ biến nhất.
+"os.environ" = { msg = "Đọc config qua config.get_settings(), không dùng os.environ." }
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+plugins = []
+exclude = ["^tests/"]
+
+[[tool.mypy.overrides]]
+# numpy (markitdown kéo theo) có stub dùng cú pháp `type` của Python 3.12 nên mypy
+# đang chạy ở python_version 3.11 sẽ vỡ khi đọc. Không cần type-check SDK bên ngoài.
+module = ["numpy.*", "markitdown.*", "mcp.*", "notion_client.*", "google.genai.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q"
