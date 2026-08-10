@@ -2,9 +2,9 @@
 
 | Workflow | Trigger | Việc làm |
 |---|---|---|
-| `backend-ci.yml` | đổi `backend/**` | ruff · mypy · pytest · build Docker (không push) |
-| `terraform.yml` | đổi `infra/**` | fmt · validate · plan (env `dev`) |
-| `deploy.yml` | push `main` hoặc chạy tay | build & push image → deploy Cloud Run → gọi `/health` |
+| `backend-ci.yml` | push `develop` / mọi PR, đổi `backend/**` | ruff · mypy · pytest · build Docker (không push) |
+| `terraform.yml` | push/PR `develop`, đổi `infra/**` | fmt · validate · plan (env `dev`) |
+| `deploy.yml` | push `develop` hoặc chạy tay | build & push image → deploy Cloud Run → gọi `/health` |
 
 ## Secrets cần cấu hình trong GitHub
 
