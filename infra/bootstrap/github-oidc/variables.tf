@@ -26,11 +26,12 @@ variable "deployer_roles" {
   EOT
   type        = list(string)
   default = [
-    "roles/run.admin",                      # tạo/sửa Cloud Run service
-    "roles/artifactregistry.admin",         # tạo repo + push image
-    "roles/secretmanager.admin",            # tạo secret + gán quyền đọc
-    "roles/iam.serviceAccountAdmin",        # tạo service account cho Cloud Run
-    "roles/iam.serviceAccountUser",         # deploy service chạy dưới danh nghĩa SA đó
-    "roles/serviceusage.serviceUsageAdmin", # bật API trên project
+    "roles/run.admin",                       # tạo/sửa Cloud Run service
+    "roles/artifactregistry.admin",          # tạo repo + push image
+    "roles/secretmanager.admin",             # tạo secret + gán quyền đọc
+    "roles/iam.serviceAccountAdmin",         # tạo service account cho Cloud Run
+    "roles/iam.serviceAccountUser",          # deploy service chạy dưới danh nghĩa SA đó
+    "roles/serviceusage.serviceUsageAdmin",  # bật API trên project
+    "roles/resourcemanager.projectIamAdmin", # gán roles/aiplatform.user cho SA của Cloud Run
   ]
 }
