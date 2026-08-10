@@ -216,3 +216,39 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- Node / Next.js ---
+node_modules/
+.next/
+out/
+.npm
+*.tsbuildinfo
+.pnp
+.pnp.js
+
+# --- Terraform ---
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.auto.tfvars
+terraform.tfvars
+
+# --- Cloud / secrets ---
+*service-account*.json
+gcp-key*.json
+
+# --- Claude Code ---
+.claude/settings.local.json
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+
+# Dữ liệu tải về từ Notion (CV — dữ liệu cá nhân, không commit)
+backend/data/
+data/
+
+# Bootstrap terraform dùng local state — không commit
+infra/bootstrap/terraform.tfstate*
+infra/bootstrap/terraform.tfvars
