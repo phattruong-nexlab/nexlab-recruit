@@ -12,3 +12,8 @@ terraform.rc
 # tfvars có thể chứa giá trị nhạy cảm — chỉ commit file trong envs/ đã được review.
 *.auto.tfvars
 terraform.tfvars
+
+# File plan đã sinh — có thể chứa giá trị nhạy cảm, không commit
+tfplan
+*.tfplan
+plan.txt
