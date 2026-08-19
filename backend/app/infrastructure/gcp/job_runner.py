@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 from app.infrastructure.gcp.credentials import GoogleApiClient
 
@@ -44,12 +45,21 @@ class CloudRunJobRunner:
     def configured(self) -> bool:
         return bool(self._project and self._region and self._job)
 
-    async def start(self) -> str:
-        """Kích hoạt job, trả về tên execution để theo dõi."""
+    async def start(self, args: list[str] | None = None) -> str:
+        """Kích hoạt job, trả về tên execution để theo dõi.
+
+        `args` ghi đè tham số dòng lệnh của container cho riêng lần chạy này —
+        nhờ vậy HR chọn ngày và job trên web mà không phải sửa cấu hình job.
+        """
         url = f"{_API}/projects/{self._project}/locations/{self._region}/jobs/{self._job}:run"
+
         # Body rỗng là bắt buộc: POST không có body thì httpx bỏ Content-Length,
         # và Google trả 411 Length Required.
-        payload = await self._api.request("POST", url, json={})
+        body: dict[str, Any] = {}
+        if args:
+            body = {"overrides": {"containerOverrides": [{"args": args}]}}
+
+        payload = await self._api.request("POST", url, json=body)
         # Long-running operation: tên execution nằm trong metadata.
         name = (payload.get("metadata") or {}).get("name") or payload.get("name", "")
         logger.info("Đã kích hoạt job %s -> %s", self._job, name)

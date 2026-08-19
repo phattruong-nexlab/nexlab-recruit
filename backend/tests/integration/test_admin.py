@@ -9,22 +9,32 @@ import pytest
 from starlette.applications import Starlette
 
 from app.application.dto.scan import ScanSummary
+from app.application.ports.application_source import PendingApplication, PendingFilter
 from app.application.use_cases.extract_resume_content import ExtractResumeContentUseCase
 from app.interface.web import admin as admin_module
+from tests.conftest import make_application
 
 _PASSWORD = "hr-secret"
 
 
 class FakeScan(ExtractResumeContentUseCase):
-    """Chỉ cần đếm — không chạm Notion."""
+    """Chỉ trả danh sách chờ — không chạm Notion."""
 
     def __init__(self, pending: int) -> None:  # không gọi super()
-        self._pending = pending
+        self._items = [make_application(i) for i in range(pending)]
 
-    async def count_pending(self) -> int:
-        return self._pending
+    async def list_pending(
+        self, pending_filter: PendingFilter | None = None
+    ) -> list[PendingApplication]:
+        self.seen_filter = pending_filter
+        return self._items
 
-    async def execute(self, limit: int | None = None) -> ScanSummary:
+    async def count_pending(self, pending_filter: PendingFilter | None = None) -> int:
+        return len(self._items)
+
+    async def execute(
+        self, limit: int | None = None, pending_filter: PendingFilter | None = None
+    ) -> ScanSummary:
         raise AssertionError("Trang quản trị KHÔNG được tự xử lý — phải giao cho job")
 
 
@@ -88,7 +98,11 @@ async def test_dang_nhap_dung_roi_xem_duoc_so_cv_cho(app: Starlette) -> None:
 
         pending = await client.get("/admin/pending")
 
-    assert pending.json() == {"pending": 12}
+    body = pending.json()
+    assert body["pending"] == 12
+    assert body["scope"] == "tất cả"
+    # Danh sách job lấy từ chính lượt đếm, không tốn thêm lời gọi Notion.
+    assert body["jobs"][0]["count"] == 12
 
 
 async def test_chua_cau_hinh_job_thi_bao_loi_ro_rang(app: Starlette) -> None:
@@ -125,3 +139,13 @@ async def test_cookie_ky_bang_mat_khau_nen_doi_mat_khau_la_het_phien(
 
     get_settings.cache_clear()
     assert after.status_code == 401
+
+
+async def test_loc_theo_ngay_va_job_duoc_truyen_xuong(app: Starlette) -> None:
+    async with _client(app) as client:
+        await client.post("/admin/login", data={"password": _PASSWORD})
+        response = await client.get("/admin/pending?since=2026-08-18&job=junior-frontend")
+
+    assert response.status_code == 200
+    assert "2026-08-18" in response.json()["scope"]
+    assert "junior-frontend" in response.json()["scope"]

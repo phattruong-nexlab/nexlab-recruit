@@ -10,7 +10,11 @@ import asyncio
 import logging
 
 from app.application.dto.scan import ScanFailure, ScanSummary
-from app.application.ports.application_source import ApplicationSource, PendingApplication
+from app.application.ports.application_source import (
+    ApplicationSource,
+    PendingApplication,
+    PendingFilter,
+)
 from app.application.ports.content_writer import ResumeContentWriter
 from app.application.ports.cv_downloader import CvDownloader
 from app.application.ports.cv_ocr import CvOcr
@@ -40,11 +44,19 @@ class ExtractResumeContentUseCase:
         self._ocr = ocr
         self._semaphore = asyncio.Semaphore(max(1, concurrency))
 
-    async def count_pending(self) -> int:
-        return await self._source.count_pending()
+    async def count_pending(self, pending_filter: PendingFilter | None = None) -> int:
+        return await self._source.count_pending(pending_filter=pending_filter)
 
-    async def execute(self, limit: int | None = None) -> ScanSummary:
-        pending = await self._source.list_pending(limit=limit)
+    async def list_pending(
+        self, pending_filter: PendingFilter | None = None
+    ) -> list[PendingApplication]:
+        """Cho trang quản trị hiển thị số lượng và danh sách job đang chờ."""
+        return await self._source.list_pending(pending_filter=pending_filter)
+
+    async def execute(
+        self, limit: int | None = None, pending_filter: PendingFilter | None = None
+    ) -> ScanSummary:
+        pending = await self._source.list_pending(limit=limit, pending_filter=pending_filter)
         summary = ScanSummary(total=len(pending))
 
         if not pending:

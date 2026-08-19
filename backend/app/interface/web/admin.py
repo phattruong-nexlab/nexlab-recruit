@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hmac
 import logging
+from collections import Counter
 from typing import Any
 
 from itsdangerous import BadSignature, URLSafeSerializer
@@ -18,6 +19,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.routing import Route
 
+from app.application.ports.application_source import PendingFilter
 from app.domain.exceptions import DomainError
 from app.infrastructure.gcp.job_runner import CloudRunJobRunner
 from app.infrastructure.gcp.scheduler import CloudSchedulerClient
@@ -83,15 +85,32 @@ async def dashboard(request: Request) -> Response:
     return HTMLResponse(render_page())
 
 
+def _filter_from(params: Any) -> PendingFilter:
+    since = (params.get("since") or "").strip() or None
+    job = (params.get("job") or "").strip() or None
+    return PendingFilter(since=since, job_url_contains=job)
+
+
 async def pending_count(request: Request) -> Response:
+    """Trả về số đơn chờ VÀ danh sách job đang có đơn — cùng một lần query Notion."""
     if not _is_signed_in(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
+    criteria = _filter_from(request.query_params)
     try:
-        pending = await get_extract_use_case().count_pending()
+        use_case = get_extract_use_case()
+        pending = await use_case.list_pending(pending_filter=criteria)
     except DomainError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
-    return JSONResponse({"pending": pending})
+
+    counter = Counter(item.job_url for item in pending if item.job_url)
+    return JSONResponse(
+        {
+            "pending": len(pending),
+            "scope": criteria.describe(),
+            "jobs": [{"slug": slug, "count": n} for slug, n in counter.most_common()],
+        }
+    )
 
 
 async def start_run(request: Request) -> Response:
@@ -105,11 +124,27 @@ async def start_run(request: Request) -> Response:
             status_code=503,
         )
 
+    criteria = _filter_from(await _json_body(request))
+    args = ["--since", criteria.since] if criteria.since else []
+    if criteria.job_url_contains:
+        args += ["--job", criteria.job_url_contains]
+
     try:
-        execution = await runner.start()
+        execution = await runner.start(args or None)
     except DomainError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
-    return JSONResponse({"execution": execution})
+
+    logger.info("HR khởi động lượt chạy: %s", criteria.describe())
+    return JSONResponse({"execution": execution, "scope": criteria.describe()})
+
+
+async def _json_body(request: Request) -> dict[str, Any]:
+    """POST không body cũng chấp nhận được — coi như không lọc gì."""
+    try:
+        body = await request.json()
+    except Exception:
+        return {}
+    return dict(body) if isinstance(body, dict) else {}
 
 
 async def run_status(request: Request) -> Response:

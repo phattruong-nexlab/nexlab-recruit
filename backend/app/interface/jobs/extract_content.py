@@ -15,14 +15,15 @@ import asyncio
 import logging
 import sys
 
+from app.application.ports.application_source import PendingFilter
 from app.interface.dependencies import get_extract_use_case
 from config import get_settings
 
 logger = logging.getLogger("extract_content")
 
 
-async def run(limit: int | None) -> int:
-    summary = await get_extract_use_case().execute(limit=limit)
+async def run(limit: int | None, pending_filter: PendingFilter) -> int:
+    summary = await get_extract_use_case().execute(limit=limit, pending_filter=pending_filter)
 
     logger.info(
         "KẾT QUẢ: %d/%d thành công, %d lỗi",
@@ -44,12 +45,26 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Chỉ xử lý N CV đầu — dùng để thử trước khi chạy cả lượt",
     )
+    parser.add_argument(
+        "--since",
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="Chỉ xử lý đơn nộp từ ngày này trở đi",
+    )
+    parser.add_argument(
+        "--job",
+        default=None,
+        metavar="SLUG",
+        help="Chỉ xử lý đơn có Job URL chứa chuỗi này, ví dụ junior-frontend",
+    )
     args = parser.parse_args(argv)
 
     settings = get_settings()
     logging.basicConfig(level=settings.log_level, format="%(levelname)s %(message)s")
 
-    return asyncio.run(run(args.limit))
+    pending_filter = PendingFilter(since=args.since, job_url_contains=args.job)
+    logger.info("Phạm vi: %s", pending_filter.describe())
+    return asyncio.run(run(args.limit, pending_filter))
 
 
 if __name__ == "__main__":

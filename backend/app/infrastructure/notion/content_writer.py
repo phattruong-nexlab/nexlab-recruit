@@ -20,10 +20,19 @@ logger = logging.getLogger(__name__)
 
 CONTENT_COLUMN = "Resume Content"
 
-# Giới hạn của Notion: mỗi text object 2000 ký tự, mỗi property tối đa 100 object.
+# Giới hạn của Notion: mỗi text object 2000, mỗi property tối đa 100 object.
+#
+# QUAN TRỌNG: Notion đếm theo đơn vị UTF-16 (như String.length của JavaScript),
+# không phải theo ký tự Unicode. Emoji và ký tự ngoài BMP tính là 2 đơn vị, nên
+# cắt bằng len() của Python sẽ vượt hạn mức mà không hiểu vì sao.
 _CHUNK = 2000
 _MAX_CHUNKS = 100
 MAX_CONTENT_CHARS = _CHUNK * _MAX_CHUNKS
+
+
+def utf16_len(text: str) -> int:
+    """Độ dài theo cách Notion đếm."""
+    return len(text.encode("utf-16-le")) // 2
 
 
 class NotionResumeContentWriter(ResumeContentWriter):
@@ -48,13 +57,26 @@ class NotionResumeContentWriter(ResumeContentWriter):
 
 
 def to_rich_text(content: str) -> list[dict[str, Any]]:
-    """Cắt thành các mảnh 2000 ký tự. Quá dài thì cắt bớt phần đuôi."""
-    text = content
-    if len(text) > MAX_CONTENT_CHARS:
-        logger.warning("Nội dung %d ký tự, cắt còn %d", len(text), MAX_CONTENT_CHARS)
-        text = text[:MAX_CONTENT_CHARS]
+    """Cắt thành các mảnh vừa hạn mức UTF-16 của Notion, không cắt giữa emoji."""
+    chunks: list[str] = []
+    current: list[str] = []
+    used = 0
 
-    return [
-        {"type": "text", "text": {"content": text[i : i + _CHUNK]}}
-        for i in range(0, len(text), _CHUNK)
-    ]
+    for char in content:
+        width = utf16_len(char)
+        if used + width > _CHUNK:
+            chunks.append("".join(current))
+            if len(chunks) >= _MAX_CHUNKS:
+                logger.warning("Nội dung quá dài, cắt còn %d mảnh", _MAX_CHUNKS)
+                return _wrap(chunks)
+            current, used = [], 0
+        current.append(char)
+        used += width
+
+    if current:
+        chunks.append("".join(current))
+    return _wrap(chunks)
+
+
+def _wrap(chunks: list[str]) -> list[dict[str, Any]]:
+    return [{"type": "text", "text": {"content": chunk}} for chunk in chunks]
