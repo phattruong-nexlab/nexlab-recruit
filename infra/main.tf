@@ -203,11 +203,16 @@ resource "google_cloud_run_v2_job" "scan" {
 
 # Nút bấm trên trang quản trị chạy dưới danh nghĩa service → service phải được
 # phép kích hoạt job và đọc trạng thái execution.
+#
+# Phải là run.developer chứ KHÔNG phải run.invoker: trang admin truyền --since
+# và --job qua containerOverrides, mà ghi đè tham số cần quyền
+# `run.jobs.runWithOverrides` — run.invoker chỉ cho `run.jobs.run` trơn.
+# Vẫn giới hạn ở đúng job này, không cấp ở cấp project.
 resource "google_cloud_run_v2_job_iam_member" "service_can_run_job" {
   project  = var.project_id
   location = var.region
   name     = google_cloud_run_v2_job.scan.name
-  role     = "roles/run.invoker"
+  role     = "roles/run.developer"
   member   = "serviceAccount:${google_service_account.scan_cv.email}"
 }
 
