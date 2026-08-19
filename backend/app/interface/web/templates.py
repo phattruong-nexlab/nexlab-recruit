@@ -1,0 +1,217 @@
+"""HTML cho trang quản trị. Không framework, không build step — một file là đủ."""
+
+from __future__ import annotations
+
+from html import escape
+
+_STYLE = """
+:root { color-scheme: light dark; --fg:#1a1a1a; --bg:#fafafa; --card:#fff;
+        --line:#e4e4e7; --muted:#6b7280; --accent:#2563eb; --ok:#16a34a; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg:#ededed; --bg:#0f1115; --card:#181b21; --line:#2a2f38; --muted:#9ca3af; }
+}
+* { box-sizing: border-box; }
+body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+       background:var(--bg); color:var(--fg); padding:24px;
+       font-family: ui-sans-serif, system-ui, "Segoe UI", sans-serif; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:14px;
+        padding:32px; width:100%; max-width:480px; }
+h1 { font-size:19px; margin:0 0 4px; }
+h2 { font-size:12px; font-weight:600; color:var(--muted); margin:0 0 10px;
+     text-transform:uppercase; letter-spacing:.05em; }
+p.sub { color:var(--muted); font-size:13px; margin:0 0 22px; }
+.count { font-size:44px; font-weight:650; line-height:1.1; }
+.count-label { color:var(--muted); font-size:13px; margin-top:2px; }
+button, input, select { font:inherit; }
+button { width:100%; margin-top:20px; padding:11px 16px; border:0; border-radius:9px;
+         background:var(--accent); color:#fff; font-weight:600; cursor:pointer; }
+button.ghost { background:transparent; color:var(--accent); border:1px solid var(--line);
+               margin-top:0; width:auto; padding:9px 14px; }
+button:disabled { opacity:.45; cursor:not-allowed; }
+input, select { width:100%; padding:10px 12px; border:1px solid var(--line);
+                border-radius:9px; background:transparent; color:var(--fg); }
+input[type=time] { width:auto; }
+.status { margin-top:16px; padding:12px 14px; border-radius:9px; background:var(--bg);
+          border:1px solid var(--line); font-size:13px; white-space:pre-line; }
+.err { color:#dc2626; font-size:13px; margin-top:12px; }
+label { display:block; font-size:12px; color:var(--muted); margin-bottom:5px; }
+hr { border:0; border-top:1px solid var(--line); margin:24px 0 18px; }
+.row { display:flex; gap:10px; align-items:center; }
+.grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.hint { color:var(--muted); font-size:12px; margin-top:8px; }
+.ok { color:var(--ok); }
+"""
+
+
+def render_login(error: str = "") -> str:
+    problem = f'<p class="err">{escape(error)}</p>' if error else ""
+    return f"""<!doctype html>
+<html lang="vi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trích nội dung CV — Đăng nhập</title><style>{_STYLE}</style></head>
+<body><div class="card">
+  <h1>Trích nội dung CV</h1>
+  <p class="sub">Nhập mật khẩu để tiếp tục.</p>
+  <form method="post" action="/admin/login">
+    <label for="password">Mật khẩu</label>
+    <input id="password" name="password" type="password" autofocus required>
+    {problem}
+    <button type="submit">Vào</button>
+  </form>
+</div></body></html>"""
+
+
+def render_page() -> str:
+    return f"""<!doctype html>
+<html lang="vi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trích nội dung CV</title><style>{_STYLE}</style></head>
+<body><div class="card">
+  <h1>Trích nội dung CV</h1>
+  <p class="sub">Đọc CV rồi ghi text vào cột <code>Resume Content</code>.
+     CV đã có nội dung sẽ được bỏ qua, nên bấm nhiều lần không làm lại việc cũ.</p>
+
+  <div class="grid">
+    <div>
+      <label for="since">Từ ngày</label>
+      <input type="date" id="since">
+    </div>
+    <div>
+      <label for="job">Vị trí (để trống = tất cả)</label>
+      <input id="job" list="joblist" placeholder="junior-frontend">
+      <datalist id="joblist"></datalist>
+    </div>
+  </div>
+  <div class="hint" id="scope">Đang kiểm tra…</div>
+
+  <div class="count" id="count" style="margin-top:18px">…</div>
+  <div class="count-label">CV chưa có nội dung</div>
+
+  <button id="run" disabled>Đang kiểm tra…</button>
+  <div class="status" id="status" hidden></div>
+
+  <hr>
+
+  <h2>Chạy tự động</h2>
+  <div class="row">
+    <input type="time" id="time" value="02:00">
+    <button class="ghost" id="save-time">Lưu giờ</button>
+  </div>
+  <div class="hint" id="schedule-hint">Đang tải…</div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+let timer = null;
+
+function criteria() {{
+  return {{ since: $('since').value || '', job: $('job').value.trim() }};
+}}
+
+async function refresh() {{
+  const c = criteria();
+  const qs = new URLSearchParams(c).toString();
+  $('run').disabled = true;
+  $('run').textContent = 'Đang đếm…';
+  try {{
+    const r = await fetch('/admin/pending?' + qs);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    $('count').textContent = d.pending;
+    $('scope').textContent = 'Phạm vi: ' + d.scope;
+    $('run').disabled = d.pending === 0;
+    $('run').textContent = d.pending === 0 ? 'Không có CV nào' : 'Xử lý ' + d.pending + ' CV';
+
+    const list = $('joblist');
+    list.innerHTML = '';
+    (d.jobs || []).forEach((j) => {{
+      const o = document.createElement('option');
+      o.value = j.slug;
+      o.label = j.slug + ' (' + j.count + ')';
+      list.appendChild(o);
+    }});
+  }} catch (e) {{
+    $('count').textContent = '—';
+    show('Không đếm được: ' + e.message);
+  }}
+}}
+
+function show(text) {{ const s = $('status'); s.hidden = false; s.textContent = text; }}
+
+let debounce = null;
+['since', 'job'].forEach((id) => {{
+  $(id).addEventListener('input', () => {{
+    clearTimeout(debounce);
+    debounce = setTimeout(refresh, 500);
+  }});
+}});
+
+async function loadSchedule() {{
+  try {{
+    const r = await fetch('/admin/schedule');
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    if (!d.configured) {{
+      $('schedule-hint').textContent = 'Chưa cấu hình lịch chạy tự động.';
+      $('save-time').disabled = true;
+      return;
+    }}
+    if (d.time) $('time').value = d.time;
+    $('schedule-hint').textContent = d.time
+      ? 'Chạy mỗi ngày lúc ' + d.time + ' (' + d.timezone + '), xử lý mọi CV còn thiếu.'
+      : 'Lịch hiện tại: ' + d.cron + ' (' + d.timezone + ')';
+  }} catch (e) {{
+    $('schedule-hint').textContent = 'Không đọc được lịch: ' + e.message;
+  }}
+}}
+
+$('save-time').addEventListener('click', async () => {{
+  $('save-time').disabled = true;
+  try {{
+    const r = await fetch('/admin/schedule', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ time: $('time').value }}),
+    }});
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    $('schedule-hint').innerHTML = '<span class="ok">Đã lưu.</span> Chạy mỗi ngày lúc ' + d.time;
+  }} catch (e) {{
+    $('schedule-hint').textContent = 'Không lưu được: ' + e.message;
+  }} finally {{
+    $('save-time').disabled = false;
+  }}
+}});
+
+async function poll(execution) {{
+  const r = await fetch('/admin/status?execution=' + encodeURIComponent(execution));
+  const d = await r.json();
+  if (d.error) {{ show('Lỗi: ' + d.error); clearInterval(timer); return; }}
+  show(d.label + ' — thành công ' + d.succeeded + ', lỗi ' + d.failed);
+  if (d.finished) {{
+    clearInterval(timer);
+    refresh();
+  }}
+}}
+
+$('run').addEventListener('click', async () => {{
+  $('run').disabled = true;
+  show('Đang khởi động…');
+  try {{
+    const r = await fetch('/admin/run', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify(criteria()),
+    }});
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    show('Đã khởi động (' + d.scope + '). Đang chạy nền, có thể đóng trang này.');
+    timer = setInterval(() => poll(d.execution), 5000);
+  }} catch (e) {{
+    show('Không khởi động được: ' + e.message);
+    $('run').disabled = false;
+  }}
+}});
+
+refresh();
+loadSchedule();
+</script></body></html>"""

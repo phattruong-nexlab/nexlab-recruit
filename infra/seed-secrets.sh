@@ -93,26 +93,26 @@ seed() {
 
 echo "Nạp secret:"
 seed "notion-api-key" "NOTION_API_KEY"
-seed "notion-target-data-source-id" "NOTION_TARGET_DATA_SOURCE_ID"
+seed "notion-source-data-source-id" "NOTION_SOURCE_DATA_SOURCE_ID"
 
-# MCP token: tự sinh nếu chưa có ở đâu cả.
-MCP_SECRET="${PREFIX}-mcp-auth-token"
-MCP_VALUE="${MCP_AUTH_TOKEN:-}"
-[ -n "$MCP_VALUE" ] || MCP_VALUE="$(read_from_env_file MCP_AUTH_TOKEN || true)"
+# Mật khẩu trang quản trị: tự sinh nếu chưa có ở đâu cả.
+ADMIN_SECRET="${PREFIX}-admin-password"
+ADMIN_VALUE="${ADMIN_PASSWORD:-}"
+[ -n "$ADMIN_VALUE" ] || ADMIN_VALUE="$(read_from_env_file ADMIN_PASSWORD || true)"
 
-if [ -z "$MCP_VALUE" ]; then
-  MCP_VALUE="$(python -c 'import secrets; print(secrets.token_urlsafe(32), end="")')"
+if [ -z "$ADMIN_VALUE" ]; then
+  ADMIN_VALUE="$(python -c 'import secrets; print(secrets.token_urlsafe(32), end="")')"
   echo
-  echo "  Đã sinh MCP_AUTH_TOKEN mới. Thêm dòng sau vào backend/.env và cấu hình agent:"
-  echo "  MCP_AUTH_TOKEN=$MCP_VALUE"
+  echo "  Đã sinh ADMIN_PASSWORD mới. Đưa mật khẩu này cho HR:"
+  echo "  ADMIN_PASSWORD=$ADMIN_VALUE"
   echo
 fi
 echo -n "  "
-push_secret "$MCP_SECRET" "$MCP_VALUE" || true
+push_secret "$ADMIN_SECRET" "$ADMIN_VALUE" || true
 
 echo
 echo "Kiểm tra (chỉ hiện số version, không hiện giá trị):"
-for suffix in notion-api-key notion-target-data-source-id mcp-auth-token; do
+for suffix in notion-api-key notion-source-data-source-id admin-password; do
   count="$(gcloud secrets versions list "${PREFIX}-${suffix}" --project "$PROJECT" \
     --filter='state=ENABLED' --format='value(name)' 2>/dev/null | wc -l | tr -d ' ')"
   printf '  %-45s %s version\n' "${PREFIX}-${suffix}" "$count"

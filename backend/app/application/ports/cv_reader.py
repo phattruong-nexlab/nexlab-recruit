@@ -1,4 +1,4 @@
-"""Port: đọc file CV thành Markdown (spec bước [2])."""
+"""Port: đọc file CV thành text."""
 
 from __future__ import annotations
 
@@ -8,9 +8,10 @@ from app.application.ports.cv_downloader import DownloadedFile
 
 
 class CvReader(ABC):
-    """Markdown giữ được cấu trúc (heading, bullet, bảng) nên LLM tách field
-    chính xác hơn so với text phẳng."""
-
     @abstractmethod
-    def to_markdown(self, file: DownloadedFile) -> str:
-        """Raises: CvParsingError khi file hỏng hoặc không có text (CV scan ảnh)."""
+    def to_text(self, file: DownloadedFile) -> str:
+        """Trả về text/Markdown của CV.
+
+        Chuỗi rỗng hoặc quá ngắn nghĩa là PDF không có text layer (bản scan ảnh)
+        — người gọi phải chuyển sang OCR, KHÔNG coi là lỗi.
+        """

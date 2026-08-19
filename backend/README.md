@@ -1,49 +1,52 @@
-# Backend — nexlab scan-cv
+# Backend — nexlab trích nội dung CV
 
-**MCP server** cho agent Notion gọi. Python 3.11, kiến trúc DDD / Clean Architecture.
+Python 3.11, kiến trúc **DDD / Clean Architecture**. Một image, hai entrypoint:
 
-## Tool expose ra
-
-| Tool | Input | Output |
+| Entrypoint | Chạy ở đâu | Việc |
 |---|---|---|
-| `parse_cv` | `file_url` (bắt buộc), `job_url`, `email`, `phone`, `created_time` | Applied Job · University · GPA · Experience · Skill · Certificate · Language |
+| `main.py` (Starlette) | Cloud Run **Service** | Trang `/admin` cho HR bấm nút, `/health` |
+| `app.interface.jobs.extract_content` | Cloud Run **Job** | Đọc CV rồi ghi text vào `Resume Content` |
 
-Sau khi phân tích, service tự ghi một dòng mới vào bảng Notion đích và trả về
-`notion_page_id`. Ghi Notion lỗi thì vẫn trả kết quả phân tích (`published: false`).
+Service **không** làm việc nặng — nút bấm chỉ kích hoạt job qua Cloud Run Admin API
+rồi hỏi tiến độ.
 
 ## Luồng xử lý
 
 ```
-file_url  →  tải file  →  markitdown → Markdown  →  Vertex AI (1 call)  →  JSON
-                                                                          │
-                       Notion (bảng đích)  ←  mapping tĩnh, KHÔNG LLM  ←──┘
+dòng có CV và `Resume Content` còn rỗng
+        │
+        ├→ tải PDF từ Tally
+        ├→ markitdown → text
+        │     └ text < 200 ký tự (PDF scan) → Gemini 2.5 Flash đọc ảnh
+        └→ pages.update: ghi vào `Resume Content` của chính dòng đó
 ```
 
-LLM chỉ được gọi **đúng một lần**, ở bước trích xuất. Mapping sang Notion là code
-thuần trong `infrastructure/notion/property_mapping.py`.
+Thư viện trước, LLM sau — OCR chỉ chạy khi markitdown không moi được text.
+
+Không có checkpoint: cột `Resume Content` rỗng hay không chính là dấu hiệu đã xử lý.
 
 ## Cấu trúc
 
 ```
 backend/
-├── main.py                     # Starlette: mount MCP + /health + Bearer auth
-├── config.py                   # Settings (pydantic-settings) — nơi DUY NHẤT đọc env
+├── main.py                     # Starlette: /admin + /health
+├── config.py                   # Settings — nơi DUY NHẤT đọc env
 ├── app/
-│   ├── domain/                 # ❶ Pure Python: Candidate, Experience, value object
-│   │   ├── entities/
-│   │   ├── value_objects/
-│   │   ├── services/           #    applied_job (suy từ Job URL), normalizer
-│   │   └── exceptions.py
+│   ├── domain/                 # ❶ Pure Python: exceptions
 │   ├── application/            # ❷ Use case + ports
-│   │   ├── dto/parse_cv.py
-│   │   ├── ports/              #    CvDownloader, CvReader, CvExtractor, CandidatePublisher
-│   │   └── use_cases/parse_cv.py
+│   │   ├── ports/              #    CvDownloader · CvReader · CvOcr
+│   │   │                       #    ApplicationSource · ResumeContentWriter
+│   │   └── use_cases/          #    ExtractResumeContentUseCase
 │   ├── infrastructure/         # ❸ Adapters
 │   │   ├── http/               #    tải file (chặn SSRF, giới hạn dung lượng)
-│   │   ├── reader/             #    markitdown → Markdown
-│   │   ├── llm/                #    Gemini structured output
-│   │   └── notion/             #    ghi bảng đích + mapping property
-│   └── interface/mcp/          # ❹ MCP: tool parse_cv, Bearer auth, DI
+│   │   ├── reader/             #    markitdown → text
+│   │   ├── llm/                #    Gemini OCR cho PDF scan (Vertex AI)
+│   │   ├── notion/             #    tìm dòng cần xử lý, ghi Resume Content
+│   │   └── gcp/                #    kích hoạt Cloud Run Job, đổi lịch Scheduler
+│   └── interface/
+│       ├── dependencies.py     # ❹ composition root
+│       ├── jobs/               #    entrypoint Cloud Run Job
+│       └── web/                #    trang quản trị (HTML render từ server)
 ├── scripts/                    # script chạy tay: tải CV từ Notion về máy
 └── tests/
 ```
@@ -51,23 +54,15 @@ backend/
 ## Chạy local
 
 ```bash
-cp .env.example .env       # điền NOTION_API_KEY, MCP_AUTH_TOKEN, ...
-gcloud auth application-default login   # Gemini dùng ADC, không cần API key
+cp .env.example .env
+gcloud auth application-default login   # gọi Cloud Run/Scheduler API bằng ADC
 uv sync --all-extras
-uv run python main.py      # http://localhost:8000/mcp
+
+uv run python main.py                   # http://localhost:8000/admin
+uv run python -m app.interface.jobs.extract_content --limit 3
 ```
 
-Kiểm tra nhanh:
-
-```bash
-curl localhost:8000/health
-
-curl -s localhost:8000/mcp/ \
-  -H "Authorization: Bearer $MCP_AUTH_TOKEN" \
-  -H "Accept: application/json, text/event-stream" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-```
+`--limit` để thử vài CV trước khi chạy cả lượt.
 
 ## Kiểm tra
 
@@ -77,15 +72,20 @@ uv run mypy .
 uv run pytest
 ```
 
-## Cấu hình bảng Notion đích
+## Cấu hình bảng Notion
 
-`FIELD_TO_COLUMN` trong `app/infrastructure/notion/property_mapping.py` quyết định
-field nào vào cột nào. Dạng payload tự khớp theo **kiểu** của cột (title, rich_text,
-select, multi_select, number, email, phone_number, url, date) — đổi kiểu cột trên
-Notion không phải sửa code. Cột không tồn tại sẽ bị bỏ qua kèm cảnh báo trong log.
+Bảng nguồn cần đúng hai cột:
 
-Xem schema bảng đích:
+| Cột | Kiểu | Việc |
+|---|---|---|
+| `Resume, CL` | files | CV do Tally đổ vào (link `external`) |
+| `Resume Content` | rich_text | Nơi ghi text đã trích. Rỗng = chưa xử lý. |
+
+Notion giới hạn 2000 ký tự mỗi text object nên nội dung dài được cắt thành nhiều mảnh
+trong cùng property; tối đa 100 mảnh (200.000 ký tự).
+
+Xem schema:
 
 ```bash
-uv run python -m scripts.inspect_notion --database-id "<URL bảng đích>"
+uv run python -m scripts.inspect_notion --database-id "<URL bảng>"
 ```

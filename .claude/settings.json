@@ -21,7 +21,6 @@
       "Read(./frontend/.env.local)",
       "Read(./infra/**/*.tfvars)",
       "Read(./**/*service-account*.json)",
-      "Bash(terraform apply:*)",
       "Bash(terraform destroy:*)"
     ]
   }

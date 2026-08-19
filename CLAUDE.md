@@ -4,19 +4,18 @@ Hướng dẫn cho Claude Code khi làm việc trong repo này.
 
 ## Tổng quan
 
-`nexlab-recruit` — service **scan CV**, chạy như một **MCP server** để agent Notion gọi.
+`nexlab-recruit` — service **scan CV** chạy theo lô trên Google Cloud.
 
-Agent lấy `Resume, CL` (file CV), `Job URL`, `Email`, `Phone`, `Created time` từ đơn
-ứng tuyển mới → gọi tool `parse_cv` → service tải CV, đọc nội dung, trích xuất thông
-tin bằng **một** lần gọi LLM, rồi ghi một dòng mới vào bảng Notion đích.
+Cloud Run Job đọc CV của các đơn ứng tuyển rồi ghi text vào cột `Resume Content`
+của **chính dòng đó** trên bảng gốc. Chỉ một bảng Notion, không có bảng thứ hai.
 
-Trả về: **Applied Job · University · GPA · Experience · Skill · Certificate · Language**
+Chạy tự động lúc 2h sáng, hoặc HR bấm nút trên trang `/admin`.
 
 ## Cấu trúc repo
 
 ```
-backend/     MCP server (Python 3.11), kiến trúc DDD / Clean Architecture
-infra/       Terraform — 1 Cloud Run service trên Google Cloud
+backend/     Web service + Cloud Run Job (Python 3.11), DDD / Clean Architecture
+infra/       Terraform — Cloud Run service + job + scheduler trên Google Cloud
 .github/     GitHub Actions workflows (CI/CD)
 ```
 
@@ -25,15 +24,19 @@ Không có frontend. Không có database.
 ## Luồng xử lý (bất biến)
 
 ```
-file_url → tải file → markitdown → Markdown → Gemini/Vertex AI (1 call) → JSON
-                                                                  │
-                    Notion (bảng đích) ← mapping tĩnh, KHÔNG LLM ←┘
+dòng có CV và `Resume Content` còn rỗng      ← điều kiện lọc, không dùng mốc thời gian
+        │
+        ├→ tải PDF từ Tally
+        ├→ markitdown → text
+        │     └ text < 200 ký tự (PDF scan) → Gemini 2.5 Flash đọc ảnh
+        └→ pages.update: ghi text vào `Resume Content` của chính dòng đó
 ```
 
-- **LLM chỉ được gọi ĐÚNG MỘT LẦN**, ở bước trích xuất. Mọi bước khác là code thuần.
-- **Ghi Notion lỗi ⇒ vẫn trả kết quả phân tích** cho agent (`published: false`).
-  Đọc CV tốn một lần gọi LLM, không được vứt đi vì Notion hỏng.
-- **`applied_job` suy từ `job_url`**, không để LLM đoán — Job URL là nguồn chính xác.
+- **Thư viện trước, LLM sau.** OCR tốn tiền, chỉ gọi khi markitdown không moi được text.
+- **Cột đích chính là dấu hiệu đã xử lý.** Không cần cột khoá riêng, không cần bảng thứ hai.
+- **Một CV hỏng không làm chết cả lượt** — vào báo cáo, lượt sau tự nhặt lại.
+- **Cột `Source ID` là bộ nhớ duy nhất.** Không lưu checkpoint trong service; chạy lại
+  bao nhiêu lần cũng không tạo dòng trùng, CV lỗi tự được nhặt lại ở lượt sau.
 - **Không bịa dữ liệu**: không tìm thấy field thì trả `null` / `[]`.
 
 ## Backend — quy tắc kiến trúc (BẮT BUỘC tuân thủ)
@@ -43,14 +46,14 @@ Dependency chỉ được trỏ **vào trong**: `interface → application → d
 
 | Layer | Đường dẫn | Được phép import | Cấm |
 |---|---|---|---|
-| Domain | `backend/app/domain/` | stdlib, `dataclasses` | mcp, markitdown, genai, notion, pydantic-settings |
+| Domain | `backend/app/domain/` | stdlib | notion, google-auth, starlette, pydantic-settings |
 | Application | `backend/app/application/` | `domain` | SDK bên ngoài, framework web |
 | Infrastructure | `backend/app/infrastructure/` | `domain`, `application`, mọi SDK | — |
-| Interface | `backend/app/interface/` | `application`, `domain`, mcp, starlette | truy cập SDK trực tiếp |
+| Interface | `backend/app/interface/` | `application`, `domain`, starlette | truy cập SDK trực tiếp |
 
 - Domain là **pure Python** (dataclass), không I/O, không async.
 - Application định nghĩa **ports** (ABC) trong `application/ports/`; infrastructure là **adapters**.
-- Wiring / DI nằm ở `backend/app/interface/mcp/dependencies.py`.
+- Wiring / DI nằm ở `backend/app/interface/dependencies.py`.
 - `main.py` và `config.py` nằm ở **root của `backend/`**, không nằm trong `app/`.
 - Mọi secret đọc qua `config.py` (`pydantic-settings`), không `os.environ` rải rác.
 
@@ -60,7 +63,8 @@ Dependency chỉ được trỏ **vào trong**: `interface → application → d
 # Backend
 cd backend
 uv sync --all-extras
-uv run python main.py                 # MCP tại http://localhost:8000/mcp
+uv run python main.py                 # trang quản trị: http://localhost:8000/admin
+uv run python -m app.interface.jobs.extract_content --limit 3 # chạy thử job
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
 uv run mypy .
@@ -82,10 +86,11 @@ terraform apply -var-file=envs/dev/dev.tfvars
 
 ## Điều cần tránh
 
-- Không gọi LLM ở bước nào khác ngoài `CvExtractor`. Mapping sang Notion là code thuần.
+- Không gọi LLM ở bước nào khác ngoài OCR cho PDF scan.
 - Không thêm database — service stateless, không có source of truth riêng.
-- Không đọc ngược dữ liệu từ Notion; agent lo phần đó và truyền vào qua tham số tool.
 - Không thêm multi-agent / ADK.
 - Không import SDK bên ngoài vào `domain/`.
-- Không để endpoint MCP không có `MCP_AUTH_TOKEN` khi chạy ngoài local.
-- Không quay lại dùng Gemini API key — xác thực qua Vertex AI + ADC.
+- Không để trang `/admin` không có `ADMIN_PASSWORD` khi chạy ngoài local.
+- Không dùng mốc thời gian để nhớ đã xử lý tới đâu — lọc theo `Resume Content` rỗng.
+- Không bỏ `ignore_changes = [schedule]` ở Cloud Scheduler — HR đổi giờ từ web,
+  Terraform mà ghi đè thì giờ HR đặt biến mất trong im lặng.

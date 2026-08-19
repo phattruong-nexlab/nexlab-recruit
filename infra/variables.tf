@@ -49,13 +49,58 @@ variable "allow_public_service" {
 }
 
 
+
+variable "scan_concurrency" {
+  description = <<-EOT
+    Số dòng xử lý song song. Notion giới hạn ~3 request/giây và mỗi dòng tốn 3
+    lời gọi, nên để cao hơn 3 sẽ dính 429 khi chạy hàng nghìn dòng.
+  EOT
+  type        = number
+  default     = 3
+}
+
+variable "scan_timeout_seconds" {
+  description = "Thời gian tối đa cho một lượt quét (mặc định 2 giờ)"
+  type        = number
+  default     = 7200
+}
+
+variable "scan_schedule" {
+  description = <<-EOT
+    Lịch cron cho lượt chạy tự động. Rỗng = chỉ chạy khi HR bấm nút.
+
+    Đây chỉ là giá trị KHỞI TẠO — HR đổi giờ được từ trang /admin, và Terraform
+    không ghi đè lại (xem lifecycle.ignore_changes ở main.tf).
+  EOT
+  type        = string
+  default     = "0 2 * * *"
+}
+
+variable "scan_timezone" {
+  type    = string
+  default = "Asia/Ho_Chi_Minh"
+}
+
 variable "vertex_location" {
-  description = "Vùng của Vertex AI. \"global\" tránh được chuyện model chưa có ở region."
+  description = "Vùng Vertex AI cho OCR. \"global\" tránh chuyện model chưa có ở region."
   type        = string
   default     = "global"
 }
 
 variable "gemini_model" {
-  type    = string
-  default = "gemini-2.5-flash"
+  description = "Model dùng để OCR CV dạng ảnh scan"
+  type        = string
+  default     = "gemini-2.5-flash"
+}
+
+variable "scan_window_days" {
+  description = <<-EOT
+    Lượt chạy tự động chỉ xử lý đơn trong N ngày gần nhất.
+
+    Đặt cửa sổ thay vì "tất cả những gì còn thiếu" để đêm đầu tiên không nuốt
+    trọn tồn đọng cũ. Vẫn tự bù được nếu lỡ vài đêm, miễn không quá N ngày.
+    Muốn xử lý tồn đọng thì chạy tay từ trang /admin với mốc ngày cụ thể.
+  EOT
+  type        = number
+  default     = 7
 }

@@ -1,8 +1,3 @@
-output "mcp_url" {
-  description = "URL endpoint MCP — điền vào cấu hình agent Notion (nhớ thêm /mcp)"
-  value       = "${module.scan_cv.uri}/mcp"
-}
-
 output "service_url" {
   description = "URL gốc của Cloud Run service"
   value       = module.scan_cv.uri
@@ -16,4 +11,13 @@ output "artifact_registry_repository" {
 output "secret_ids" {
   description = "Các secret cần nạp giá trị bằng: gcloud secrets versions add <id> --data-file=-"
   value       = values(module.secrets.secret_ids)
+}
+
+output "admin_url" {
+  description = "Trang HR bấm nút quét — đặt link này vào Notion"
+  value       = "${module.scan_cv.uri}/admin"
+}
+
+output "scan_job_name" {
+  value = google_cloud_run_v2_job.scan.name
 }
