@@ -6,7 +6,6 @@ resource "google_project_service" "required" {
     "run.googleapis.com",
     "artifactregistry.googleapis.com",
     "secretmanager.googleapis.com",
-    "aiplatform.googleapis.com",
     "cloudscheduler.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
@@ -63,13 +62,6 @@ resource "google_secret_manager_secret_iam_member" "scan_cv_accessor" {
   member    = "serviceAccount:${google_service_account.scan_cv.email}"
 }
 
-# Gọi Gemini qua Vertex AI bằng chính danh tính của service — không cần API key.
-resource "google_project_iam_member" "scan_cv_vertex" {
-  project = var.project_id
-  role    = "roles/aiplatform.user"
-  member  = "serviceAccount:${google_service_account.scan_cv.email}"
-}
-
 # ---------------------------------------------------------------------------
 # Cloud Run service
 # ---------------------------------------------------------------------------
@@ -92,13 +84,12 @@ module "scan_cv" {
   # Trang /admin tự bảo vệ bằng mật khẩu (ADMIN_PASSWORD), không dùng IAM,
   # để HR mở được link trực tiếp từ Notion mà không cần tài khoản Google.
   env_vars = {
-    ENVIRONMENT        = var.environment
-    LOG_LEVEL          = var.environment == "prod" ? "INFO" : "DEBUG"
-    GCP_PROJECT_ID     = var.project_id
-    VERTEX_LOCATION    = var.vertex_location
-    GEMINI_MODEL       = var.gemini_model
-    GCP_REGION         = var.region
-    CLOUD_RUN_JOB_NAME = "${local.name_prefix}-scan-job"
+    ENVIRONMENT              = var.environment
+    LOG_LEVEL                = var.environment == "prod" ? "INFO" : "DEBUG"
+    GCP_PROJECT_ID           = var.project_id
+    GCP_REGION               = var.region
+    CLOUD_RUN_JOB_NAME       = "${local.name_prefix}-scan-job"
+    CLOUD_SCHEDULER_JOB_NAME = "${local.name_prefix}-daily-scan"
   }
 
   secret_env_vars = local.app_secret_env_vars
@@ -106,7 +97,6 @@ module "scan_cv" {
   depends_on = [
     google_project_service.required,
     google_secret_manager_secret_iam_member.scan_cv_accessor,
-    google_project_iam_member.scan_cv_vertex,
   ]
 }
 
@@ -134,7 +124,7 @@ resource "google_cloud_run_v2_job" "scan" {
 
       containers {
         image   = var.service_image
-        command = ["python", "-m", "app.interface.jobs.scan_pending"]
+        command = ["python", "-m", "app.interface.jobs.mirror_rows"]
 
         resources {
           limits = {
@@ -150,14 +140,6 @@ resource "google_cloud_run_v2_job" "scan" {
         env {
           name  = "GCP_PROJECT_ID"
           value = var.project_id
-        }
-        env {
-          name  = "VERTEX_LOCATION"
-          value = var.vertex_location
-        }
-        env {
-          name  = "GEMINI_MODEL"
-          value = var.gemini_model
         }
         env {
           name  = "SCAN_CONCURRENCY"
@@ -191,7 +173,6 @@ resource "google_cloud_run_v2_job" "scan" {
   depends_on = [
     google_project_service.required,
     google_secret_manager_secret_iam_member.scan_cv_accessor,
-    google_project_iam_member.scan_cv_vertex,
   ]
 }
 
@@ -237,5 +218,18 @@ resource "google_cloud_scheduler_job" "daily_scan" {
     }
   }
 
+  # HR đổi giờ chạy từ trang /admin. Không có ignore_changes thì lần
+  # `terraform apply` kế tiếp sẽ lặng lẽ kéo về giá trị trong code.
+  lifecycle {
+    ignore_changes = [schedule]
+  }
+
   depends_on = [google_cloud_run_v2_job_iam_member.service_can_run_job]
+}
+
+# Trang quản trị đọc và sửa lịch chạy -> service cần quyền trên Cloud Scheduler.
+resource "google_project_iam_member" "service_can_manage_scheduler" {
+  project = var.project_id
+  role    = "roles/cloudscheduler.admin"
+  member  = "serviceAccount:${google_service_account.scan_cv.email}"
 }

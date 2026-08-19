@@ -1,11 +1,11 @@
-# Backend — nexlab scan-cv
+# Backend — nexlab đồng bộ CV
 
 Python 3.11, kiến trúc **DDD / Clean Architecture**. Một image, hai entrypoint:
 
 | Entrypoint | Chạy ở đâu | Việc |
 |---|---|---|
 | `main.py` (Starlette) | Cloud Run **Service** | Trang `/admin` cho HR bấm nút, `/health` |
-| `app.interface.jobs.scan_pending` | Cloud Run **Job** | Quét CV chưa xử lý rồi ghi Notion |
+| `app.interface.jobs.mirror_rows` | Cloud Run **Job** | Nhân bản đơn sang bảng gương + upload CV |
 
 Service **không** làm việc nặng — nút bấm chỉ kích hoạt job qua Cloud Run Admin API
 rồi hỏi tiến độ.
@@ -13,18 +13,17 @@ rồi hỏi tiến độ.
 ## Luồng xử lý
 
 ```
-[đơn nguồn có CV] − [Source ID đã có ở bảng đích]     ← phép trừ tập hợp
+[đơn nguồn] − [Source ID đã có ở bảng gương]     ← phép trừ tập hợp
         │
-        └→ tải file → markitdown → Markdown → Vertex AI (1 call) → JSON
-                                                                    │
-                             Notion (bảng đích) ← mapping tĩnh ←────┘
+        ├→ tải PDF từ Tally
+        ├→ file_uploads.create → send            ← đưa file vào Notion
+        └→ pages.create: chép 64 cột + Resume(type:file) + Source ID
 ```
 
-LLM chỉ được gọi **đúng một lần**, ở bước trích xuất. Mapping sang Notion là code thuần
-trong `infrastructure/notion/property_mapping.py`.
+Không gọi LLM. Chép property là code thuần trong
+`infrastructure/notion/property_copier.py`.
 
-Không có checkpoint: cột `Source ID` trên bảng đích là bộ nhớ duy nhất. Chạy lại bao
-nhiêu lần cũng không tạo dòng trùng.
+Không có checkpoint: cột `Source ID` trên bảng gương là bộ nhớ duy nhất.
 
 ## Cấu trúc
 
@@ -33,17 +32,14 @@ backend/
 ├── main.py                     # Starlette: /admin + /health
 ├── config.py                   # Settings — nơi DUY NHẤT đọc env
 ├── app/
-│   ├── domain/                 # ❶ Pure Python: Candidate, Experience, value object
+│   ├── domain/                 # ❶ Pure Python: exceptions
 │   ├── application/            # ❷ Use case + ports
-│   │   ├── ports/              #    CvDownloader · CvReader · CvExtractor
-│   │   │                       #    CandidatePublisher · ApplicationSource
-│   │   └── use_cases/          #    ParseCvUseCase · ScanPendingUseCase
+│   │   ├── ports/              #    CvDownloader · ApplicationSource · RowMirror
+│   │   └── use_cases/          #    MirrorApplicationsUseCase
 │   ├── infrastructure/         # ❸ Adapters
 │   │   ├── http/               #    tải file (chặn SSRF, giới hạn dung lượng)
-│   │   ├── reader/             #    markitdown → Markdown
-│   │   ├── llm/                #    Vertex AI structured output
-│   │   ├── notion/             #    đọc bảng nguồn, ghi bảng đích, mapping property
-│   │   └── gcp/                #    kích hoạt Cloud Run Job
+│   │   ├── notion/             #    đọc nguồn, chép property, upload file, tạo dòng
+│   │   └── gcp/                #    kích hoạt Cloud Run Job, đổi lịch Scheduler
 │   └── interface/
 │       ├── dependencies.py     # ❹ composition root
 │       ├── jobs/               #    entrypoint Cloud Run Job
@@ -56,14 +52,14 @@ backend/
 
 ```bash
 cp .env.example .env
-gcloud auth application-default login   # Vertex AI dùng ADC, không cần API key
+gcloud auth application-default login   # gọi Cloud Run/Scheduler API bằng ADC
 uv sync --all-extras
 
 uv run python main.py                   # http://localhost:8000/admin
-uv run python -m app.interface.jobs.scan_pending --limit 2
+uv run python -m app.interface.jobs.mirror_rows --limit 5
 ```
 
-`--limit` để thử vài CV trước khi chạy cả lượt.
+`--limit` để thử vài dòng trước khi chạy cả lượt.
 
 ## Kiểm tra
 
@@ -73,15 +69,18 @@ uv run mypy .
 uv run pytest
 ```
 
-## Cấu hình bảng Notion đích
+## Cấu hình bảng gương
 
-`FIELD_TO_COLUMN` trong `app/infrastructure/notion/property_mapping.py` quyết định field
-nào vào cột nào. Dạng payload tự khớp theo **kiểu** của cột — đổi kiểu cột trên Notion
-không phải sửa code. Cột không tồn tại bị bỏ qua kèm cảnh báo trong log; cột Notion tự
-sinh (`created_time`, `formula`, `rollup`...) bị chặn vì ghi vào sẽ lỗi 400.
+Bảng gương phải có cột **trùng tên và trùng kiểu** với bảng nguồn — cột nào lệch sẽ bị
+bỏ qua kèm cảnh báo trong log, không làm hỏng cả dòng. Ngoài ra bắt buộc có:
 
-Bảng đích **bắt buộc** có cột `Source ID` (rich_text) — thiếu nó thì mỗi lượt chạy sẽ
-xử lý lại từ đầu và tạo dòng trùng.
+| Cột | Kiểu | Việc |
+|---|---|---|
+| `Source ID` | rich_text | Khoá chống trùng. Thiếu nó thì mỗi lượt nhân bản lại từ đầu. |
+| `Resume` | files | Nơi đặt CV do Notion lưu (`type: file`). |
+
+Cột Notion tự sinh (`created_time`, `formula`, `rollup`...) bị bỏ qua vì ghi vào sẽ lỗi
+400. Lưu ý `Created time` ở bảng gương là **lúc nhân bản**, không phải lúc nộp đơn.
 
 Xem schema:
 

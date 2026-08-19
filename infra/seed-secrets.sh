@@ -94,7 +94,7 @@ seed() {
 echo "Nạp secret:"
 seed "notion-api-key" "NOTION_API_KEY"
 seed "notion-source-data-source-id" "NOTION_SOURCE_DATA_SOURCE_ID"
-seed "notion-target-data-source-id" "NOTION_TARGET_DATA_SOURCE_ID"
+seed "notion-mirror-data-source-id" "NOTION_MIRROR_DATA_SOURCE_ID"
 
 # Mật khẩu trang quản trị: tự sinh nếu chưa có ở đâu cả.
 ADMIN_SECRET="${PREFIX}-admin-password"
@@ -113,7 +113,7 @@ push_secret "$ADMIN_SECRET" "$ADMIN_VALUE" || true
 
 echo
 echo "Kiểm tra (chỉ hiện số version, không hiện giá trị):"
-for suffix in notion-api-key notion-source-data-source-id notion-target-data-source-id admin-password; do
+for suffix in notion-api-key notion-source-data-source-id notion-mirror-data-source-id admin-password; do
   count="$(gcloud secrets versions list "${PREFIX}-${suffix}" --project "$PROJECT" \
     --filter='state=ENABLED' --format='value(name)' 2>/dev/null | wc -l | tr -d ' ')"
   printf '  %-45s %s version\n' "${PREFIX}-${suffix}" "$count"

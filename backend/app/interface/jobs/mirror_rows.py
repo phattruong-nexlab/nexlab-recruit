@@ -1,6 +1,6 @@
-"""Entrypoint cho Cloud Run Job: quét mọi đơn ứng tuyển chưa xử lý.
+"""Entrypoint cho Cloud Run Job: nhân bản đơn ứng tuyển sang bảng gương.
 
-    python -m app.interface.jobs.scan_pending [--limit N]
+    python -m app.interface.jobs.mirror_rows [--limit N]
 
 Job chạy tới khi xong rồi tắt — không có endpoint HTTP, không cần token, và
 `file_url` lấy thẳng từ Notion nên không có bề mặt SSRF như đường MCP.
@@ -15,14 +15,14 @@ import asyncio
 import logging
 import sys
 
-from app.interface.dependencies import get_scan_pending_use_case
+from app.interface.dependencies import get_mirror_use_case
 from config import get_settings
 
-logger = logging.getLogger("scan_pending")
+logger = logging.getLogger("mirror_rows")
 
 
 async def run(limit: int | None) -> int:
-    summary = await get_scan_pending_use_case().execute(limit=limit)
+    summary = await get_mirror_use_case().execute(limit=limit)
 
     logger.info(
         "KẾT QUẢ: %d/%d thành công, %d lỗi",
@@ -37,12 +37,12 @@ async def run(limit: int | None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Quét CV chưa xử lý và ghi vào Notion.")
+    parser = argparse.ArgumentParser(description="Nhân bản đơn ứng tuyển sang bảng gương Notion.")
     parser.add_argument(
         "--limit",
         type=int,
         default=None,
-        help="Chỉ xử lý N đơn đầu — dùng để thử trước khi chạy cả lượt",
+        help="Chỉ nhân bản N dòng đầu — dùng để thử trước khi chạy cả lượt",
     )
     args = parser.parse_args(argv)
 

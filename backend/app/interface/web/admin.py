@@ -20,7 +20,8 @@ from starlette.routing import Route
 
 from app.domain.exceptions import DomainError
 from app.infrastructure.gcp.job_runner import CloudRunJobRunner
-from app.interface.dependencies import get_scan_pending_use_case
+from app.infrastructure.gcp.scheduler import CloudSchedulerClient
+from app.interface.dependencies import get_mirror_use_case
 from app.interface.web.templates import render_login, render_page
 from config import get_settings
 
@@ -87,7 +88,7 @@ async def pending_count(request: Request) -> Response:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
     try:
-        pending = await get_scan_pending_use_case().count_pending()
+        pending = await get_mirror_use_case().count_pending()
     except DomainError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
     return JSONResponse({"pending": pending})
@@ -135,6 +136,59 @@ async def run_status(request: Request) -> Response:
     )
 
 
+async def get_schedule(request: Request) -> Response:
+    if not _is_signed_in(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    scheduler = _scheduler()
+    if not scheduler.configured:
+        return JSONResponse({"configured": False})
+
+    try:
+        schedule = await scheduler.get()
+    except DomainError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+
+    return JSONResponse(
+        {
+            "configured": True,
+            "time": schedule.time_of_day,
+            "cron": schedule.cron,
+            "timezone": schedule.timezone,
+            "enabled": schedule.enabled,
+        }
+    )
+
+
+async def set_schedule(request: Request) -> Response:
+    """HR chọn giờ dạng HH:MM; cron do server dựng, HR không phải biết cú pháp."""
+    if not _is_signed_in(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    scheduler = _scheduler()
+    if not scheduler.configured:
+        return JSONResponse({"error": "Chưa cấu hình CLOUD_SCHEDULER_JOB_NAME."}, status_code=503)
+
+    body = await request.json()
+    time_of_day = str(body.get("time", ""))
+
+    try:
+        schedule = await scheduler.set_time_of_day(time_of_day)
+    except DomainError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+    return JSONResponse({"time": schedule.time_of_day, "cron": schedule.cron})
+
+
+def _scheduler() -> CloudSchedulerClient:
+    settings = get_settings()
+    return CloudSchedulerClient(
+        project_id=settings.gcp_project_id,
+        region=settings.gcp_region,
+        job_name=settings.cloud_scheduler_job_name,
+    )
+
+
 def _runner() -> CloudRunJobRunner:
     settings = get_settings()
     return CloudRunJobRunner(
@@ -152,4 +206,6 @@ def admin_routes() -> list[Any]:
         Route("/admin/pending", pending_count, methods=["GET"]),
         Route("/admin/run", start_run, methods=["POST"]),
         Route("/admin/status", run_status, methods=["GET"]),
+        Route("/admin/schedule", get_schedule, methods=["GET"]),
+        Route("/admin/schedule", set_schedule, methods=["POST"]),
     ]

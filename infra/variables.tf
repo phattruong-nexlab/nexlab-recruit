@@ -49,21 +49,14 @@ variable "allow_public_service" {
 }
 
 
-variable "vertex_location" {
-  description = "Vùng của Vertex AI. \"global\" tránh được chuyện model chưa có ở region."
-  type        = string
-  default     = "global"
-}
-
-variable "gemini_model" {
-  type    = string
-  default = "gemini-2.5-flash"
-}
 
 variable "scan_concurrency" {
-  description = "Số CV xử lý song song trong một lượt quét"
+  description = <<-EOT
+    Số dòng xử lý song song. Notion giới hạn ~3 request/giây và mỗi dòng tốn 3
+    lời gọi, nên để cao hơn 3 sẽ dính 429 khi chạy hàng nghìn dòng.
+  EOT
   type        = number
-  default     = 4
+  default     = 3
 }
 
 variable "scan_timeout_seconds" {
@@ -73,9 +66,14 @@ variable "scan_timeout_seconds" {
 }
 
 variable "scan_schedule" {
-  description = "Lịch cron cho lượt quét tự động. Rỗng = chỉ chạy khi HR bấm nút."
+  description = <<-EOT
+    Lịch cron cho lượt chạy tự động. Rỗng = chỉ chạy khi HR bấm nút.
+
+    Đây chỉ là giá trị KHỞI TẠO — HR đổi giờ được từ trang /admin, và Terraform
+    không ghi đè lại (xem lifecycle.ignore_changes ở main.tf).
+  EOT
   type        = string
-  default     = "0 18 * * *"
+  default     = "0 2 * * *"
 }
 
 variable "scan_timezone" {

@@ -3,26 +3,29 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass(slots=True)
 class PendingApplication:
-    """Một đơn ứng tuyển đã có CV nhưng chưa được quét."""
+    """Một đơn ứng tuyển chưa có mặt ở bảng gương."""
 
     source_page_id: str
     candidate_name: str
-    file_url: str
-    job_url: str | None = None
-    email: str | None = None
-    phone: str | None = None
+    file_url: str | None
+    """Link CV ở cột "Resume, CL"; None nếu ứng viên chưa đính file."""
+
+    properties: dict[str, Any] = field(default_factory=dict)
+    """Nguyên `page["properties"]` của dòng nguồn, để chép sang bảng gương."""
+
     created_time: str | None = None
 
 
 class ApplicationSource(ABC):
     @abstractmethod
     async def list_pending(self, limit: int | None = None) -> list[PendingApplication]:
-        """Đơn có CV, trừ đi những đơn đã có mặt ở bảng đích.
+        """Đơn ở bảng nguồn, trừ đi những đơn đã có mặt ở bảng gương.
 
         Là phép TRỪ TẬP HỢP chứ không phải mốc thời gian: chạy lại bao nhiêu lần
         cũng ra đúng, đơn lỗi hôm trước tự được nhặt lại, CV về muộn cũng không sót.

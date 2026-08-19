@@ -10,10 +10,9 @@ dependencies = [
     "pydantic-settings>=2.6",
     "python-multipart>=0.0.12",
     "pymupdf>=1.24",
-    "google-genai>=0.3",
     "notion-client>=2.2",
-    "markitdown[docx,pdf]>=0.1.7",
     "itsdangerous>=2.2.0",
+    "google-auth[requests]>=2.56.3",
 ]
 
 [project.optional-dependencies]
@@ -65,7 +64,7 @@ exclude = ["^tests/"]
 [[tool.mypy.overrides]]
 # numpy (markitdown kéo theo) có stub dùng cú pháp `type` của Python 3.12 nên mypy
 # đang chạy ở python_version 3.11 sẽ vỡ khi đọc. Không cần type-check SDK bên ngoài.
-module = ["numpy.*", "markitdown.*", "mcp.*", "notion_client.*", "google.genai.*"]
+module = ["notion_client.*", "google.auth.*", "google.*"]
 ignore_missing_imports = true
 follow_imports = "skip"
 

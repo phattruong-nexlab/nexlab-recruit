@@ -1,27 +1,35 @@
-# nexlab-recruit — scan CV
+# nexlab-recruit — đồng bộ CV ứng viên
 
-Trích xuất thông tin ứng viên từ CV, chạy theo lô trên Google Cloud.
+Nhân bản đơn ứng tuyển từ Notion sang bảng gương, kèm CV **upload thẳng vào Notion**
+để connector của Claude mở được file.
 
 ```
-Tally (form trên website)  →  Notion "Job Application"   ← nguồn, có sẵn
-                                        │
-        ┌───────────────────────────────┤
-        │  Cloud Scheduler 18:00        │  HR bấm nút ở /admin
-        └───────────────► Cloud Run Job ◄┘
-                                │
-        [đơn nguồn] − [Source ID đã có ở bảng đích]   ← phép trừ tập hợp
-                                │
-        tải CV → markitdown → Markdown → Vertex AI (1 call) → JSON
-                                │
-        Notion "Candidate CV Scan Results"  ← mapping tĩnh, KHÔNG LLM
+Tally (form website)  →  Notion "Job Application"      ← nguồn, có sẵn
+                                    │
+        ┌───────────────────────────┤
+        │  Cloud Scheduler 02:00    │  HR bấm nút ở /admin
+        └────────► Cloud Run Job ◄──┘
+                        │
+        [đơn nguồn] − [Source ID đã có ở bảng gương]   ← phép trừ tập hợp
+                        │
+        tải PDF từ Tally  →  upload vào Notion  →  tạo dòng: 64 cột + Resume
+                        │
+        Notion "Job Application (1)"   ← Resume là type:file, Claude đọc được
 ```
 
-Trả về: **Applied Job · University · GPA · Experience · Skill · Certificate · Language**
+**Không đọc nội dung CV, không gọi LLM.** Toàn bộ là chép giá trị property.
+
+## Vì sao phải upload lại file
+
+CV trong bảng nguồn là `type: external` — Notion chỉ giữ link trỏ sang
+`storage.tally.so`, không lưu file. Connector Notion của Claude chỉ tải được file
+do **Notion quản lý**, nên gặp `external` là bó tay. Đổi sang GCS cũng vô ích vì
+vẫn là link ngoài. Chỉ upload vào Notion mới đổi được `type` thành `file`.
 
 ## Cấu trúc
 
 ```
-backend/             Web service (/admin) + Cloud Run Job — Python 3.11, DDD / Clean Architecture
+backend/             Web service (/admin) + Cloud Run Job — Python 3.11
 infra/               Terraform — Cloud Run service, job, scheduler, secrets (GCP)
 .github/workflows/   CI + deploy
 CLAUDE.md            hướng dẫn cho Claude Code
@@ -33,11 +41,11 @@ AGENT.md             hướng dẫn chung cho mọi AI coding agent
 ```bash
 cd backend
 cp .env.example .env                    # điền NOTION_API_KEY, ADMIN_PASSWORD...
-gcloud auth application-default login   # Gemini dùng ADC, không cần API key
+gcloud auth application-default login   # gọi Cloud Run/Scheduler API bằng ADC
 uv sync --all-extras
 
-uv run python main.py                             # trang HR: localhost:8000/admin
-uv run python -m app.interface.jobs.scan_pending --limit 2   # chạy thử job
+uv run python main.py                                       # localhost:8000/admin
+uv run python -m app.interface.jobs.mirror_rows --limit 5   # chạy thử job
 ```
 
 Chi tiết: [backend/README.md](backend/README.md) · [infra/README.md](infra/README.md) ·
@@ -45,11 +53,11 @@ Chi tiết: [backend/README.md](backend/README.md) · [infra/README.md](infra/RE
 
 ## Nguyên tắc thiết kế
 
-**Một lần gọi LLM duy nhất**, ở bước trích xuất field từ Markdown. Việc ghi sang Notion
-là mapping tĩnh trong code — cùng đầu vào luôn ra cùng payload.
+**Không có database, không có checkpoint.** Cột `Source ID` trên bảng gương chính là
+bộ nhớ. Mỗi lượt đọc lại cả hai bảng rồi trừ nhau — chạy lại bao nhiêu lần cũng không
+tạo dòng trùng, dòng lỗi tự được nhặt lại, đơn về muộn không bị sót.
 
-**Không có database, không có checkpoint.** Cột `Source ID` trên bảng đích chính là bộ
-nhớ. Mỗi lượt chạy đọc lại cả hai bảng rồi trừ nhau, nên chạy lại bao nhiêu lần cũng
-không tạo dòng trùng, CV lỗi tự được nhặt lại ở lượt sau, và CV về muộn không bị sót.
+**Một dòng hỏng không làm chết cả lượt.** Tải CV lỗi thì vẫn chép các cột còn lại.
 
-**Một CV hỏng không làm chết cả lượt.** Nó vào báo cáo lỗi và được thử lại lần sau.
+**HR tự chủ.** Đổi giờ chạy tự động và kích hoạt ngay đều làm được từ `/admin`,
+không cần vào Cloud Console.

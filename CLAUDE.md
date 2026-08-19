@@ -6,11 +6,13 @@ Hướng dẫn cho Claude Code khi làm việc trong repo này.
 
 `nexlab-recruit` — service **scan CV** chạy theo lô trên Google Cloud.
 
-Cloud Run Job đối chiếu bảng đơn ứng tuyển (Tally đổ vào) với bảng kết quả, xử lý
-những CV chưa có, rồi ghi vào bảng đích. Kích hoạt bằng Cloud Scheduler theo lịch
-hoặc bằng nút bấm trên trang `/admin` cho HR.
+Cloud Run Job **nhân bản** đơn ứng tuyển từ bảng nguồn (Tally đổ vào) sang bảng
+gương, kèm CV được **upload vào Notion** thay vì để link ngoài. Nhờ vậy connector
+Notion của Claude mở được file — với `type: external` thì không.
 
-Trả về: **Applied Job · University · GPA · Experience · Skill · Certificate · Language**
+Chạy tự động lúc 2h sáng, hoặc HR bấm nút trên trang `/admin`.
+
+**Không đọc nội dung CV, không gọi LLM.**
 
 ## Cấu trúc repo
 
@@ -25,17 +27,15 @@ Không có frontend. Không có database.
 ## Luồng xử lý (bất biến)
 
 ```
-[đơn nguồn] − [Source ID đã có ở bảng đích]   ← phép TRỪ TẬP HỢP, không dùng mốc thời gian
+[đơn nguồn] − [Source ID đã có ở bảng gương]   ← phép TRỪ TẬP HỢP, không dùng mốc thời gian
         │
-        └→ tải file → markitdown → Markdown → Vertex AI (1 call) → JSON
-                                                                    │
-                          Notion (bảng đích) ← mapping tĩnh, KHÔNG LLM ←┘
+        ├→ tải PDF từ Tally → file_uploads.create → send
+        └→ pages.create: chép 64 cột + Resume(file Notion lưu) + Source ID
 ```
 
-- **LLM chỉ được gọi ĐÚNG MỘT LẦN**, ở bước trích xuất. Mọi bước khác là code thuần.
-- **Ghi Notion lỗi ⇒ vẫn trả kết quả phân tích** cho agent (`published: false`).
-  Đọc CV tốn một lần gọi LLM, không được vứt đi vì Notion hỏng.
-- **`applied_job` suy từ `job_url`**, không để LLM đoán — Job URL là nguồn chính xác.
+- **Không gọi LLM ở bất kỳ đâu.** Toàn bộ là chép giá trị property, deterministic.
+- **CV phải là `type: file`** ở bảng gương. `external` thì connector Claude không mở được.
+- **Tải CV lỗi ⇒ vẫn chép các cột còn lại.** Lượt sau link sống lại thì chép cả file.
 - **Cột `Source ID` là bộ nhớ duy nhất.** Không lưu checkpoint trong service; chạy lại
   bao nhiêu lần cũng không tạo dòng trùng, CV lỗi tự được nhặt lại ở lượt sau.
 - **Không bịa dữ liệu**: không tìm thấy field thì trả `null` / `[]`.
@@ -47,7 +47,7 @@ Dependency chỉ được trỏ **vào trong**: `interface → application → d
 
 | Layer | Đường dẫn | Được phép import | Cấm |
 |---|---|---|---|
-| Domain | `backend/app/domain/` | stdlib, `dataclasses` | markitdown, genai, notion, starlette, pydantic-settings |
+| Domain | `backend/app/domain/` | stdlib | notion, google-auth, starlette, pydantic-settings |
 | Application | `backend/app/application/` | `domain` | SDK bên ngoài, framework web |
 | Infrastructure | `backend/app/infrastructure/` | `domain`, `application`, mọi SDK | — |
 | Interface | `backend/app/interface/` | `application`, `domain`, starlette | truy cập SDK trực tiếp |
@@ -65,7 +65,7 @@ Dependency chỉ được trỏ **vào trong**: `interface → application → d
 cd backend
 uv sync --all-extras
 uv run python main.py                 # trang quản trị: http://localhost:8000/admin
-uv run python -m app.interface.jobs.scan_pending --limit 2   # chạy thử job
+uv run python -m app.interface.jobs.mirror_rows --limit 2     # chạy thử job
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
 uv run mypy .
@@ -87,10 +87,11 @@ terraform apply -var-file=envs/dev/dev.tfvars
 
 ## Điều cần tránh
 
-- Không gọi LLM ở bước nào khác ngoài `CvExtractor`. Mapping sang Notion là code thuần.
+- Không thêm bước gọi LLM — luồng này cố ý không có AI.
 - Không thêm database — service stateless, không có source of truth riêng.
 - Không thêm multi-agent / ADK.
 - Không import SDK bên ngoài vào `domain/`.
 - Không để trang `/admin` không có `ADMIN_PASSWORD` khi chạy ngoài local.
 - Không dùng mốc thời gian để nhớ đã xử lý tới đâu — luôn đối chiếu bằng `Source ID`.
-- Không quay lại dùng Gemini API key — xác thực qua Vertex AI + ADC.
+- Không bỏ `ignore_changes = [schedule]` ở Cloud Scheduler — HR đổi giờ từ web,
+  Terraform mà ghi đè thì giờ HR đặt biến mất trong im lặng.

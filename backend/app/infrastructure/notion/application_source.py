@@ -46,14 +46,11 @@ class NotionApplicationSource(ApplicationSource):
         for page in await self._query_all(self._source_id):
             if page["id"] in done:
                 continue
-            application = _to_pending(page)
-            if application is None:  # chưa đính CV -> để lượt sau
-                continue
-            pending.append(application)
+            pending.append(_to_pending(page))
             if limit is not None and len(pending) >= limit:
                 break
 
-        logger.info("Còn %d đơn chưa quét (đã quét: %d)", len(pending), len(done))
+        logger.info("Còn %d đơn chưa nhân bản (đã có: %d)", len(pending), len(done))
         return pending
 
     async def count_pending(self) -> int:
@@ -93,19 +90,13 @@ class NotionApplicationSource(ApplicationSource):
             cursor = response["next_cursor"]
 
 
-def _to_pending(page: dict[str, Any]) -> PendingApplication | None:
-    """None nghĩa là dòng chưa có CV — chưa xử lý được, không phải lỗi."""
-    file_url = _first_file_url(page)
-    if not file_url:
-        return None
-
+def _to_pending(page: dict[str, Any]) -> PendingApplication:
+    """Dòng chưa đính CV vẫn được nhân bản — có dữ liệu vẫn hơn không có gì."""
     return PendingApplication(
         source_page_id=page["id"],
         candidate_name=_title(page) or "(chưa rõ tên)",
-        file_url=file_url,
-        job_url=_rich_text(page, "Job URL") or None,
-        email=(page["properties"].get("Email") or {}).get("email"),
-        phone=(page["properties"].get("Phone") or {}).get("phone_number"),
+        file_url=_first_file_url(page),
+        properties=page.get("properties", {}),
         created_time=page.get("created_time"),
     )
 
