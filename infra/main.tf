@@ -263,3 +263,13 @@ resource "google_project_iam_member" "service_can_manage_scheduler" {
   role    = "roles/cloudscheduler.admin"
   member  = "serviceAccount:${google_service_account.scan_cv.email}"
 }
+
+# Cloud Scheduler job gọi Cloud Run bằng OAuth token của chính service account
+# này. Sửa job đó = "dùng danh nghĩa" service account đó, nên caller phải có
+# iam.serviceAccounts.actAs — kể cả khi caller CHÍNH LÀ service account ấy.
+# Thiếu quyền này thì nút "Lưu giờ" trên trang admin trả 403.
+resource "google_service_account_iam_member" "service_can_act_as_itself" {
+  service_account_id = google_service_account.scan_cv.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.scan_cv.email}"
+}
