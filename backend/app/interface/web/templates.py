@@ -6,7 +6,7 @@ from html import escape
 
 _STYLE = """
 :root { color-scheme: light dark; --fg:#1a1a1a; --bg:#fafafa; --card:#fff;
-        --line:#e4e4e7; --muted:#6b7280; --accent:#2563eb; --ok:#16a34a; }
+        --line:#e4e4e7; --muted:#6b7280; --accent:#2563eb; --err:#dc2626; }
 @media (prefers-color-scheme: dark) {
   :root { --fg:#ededed; --bg:#0f1115; --card:#181b21; --line:#2a2f38; --muted:#9ca3af; }
 }
@@ -31,15 +31,15 @@ button:disabled { opacity:.45; cursor:not-allowed; }
 input, select { width:100%; padding:10px 12px; border:1px solid var(--line);
                 border-radius:9px; background:transparent; color:var(--fg); }
 input[type=time] { width:auto; }
-.status { margin-top:16px; padding:12px 14px; border-radius:9px; background:var(--bg);
-          border:1px solid var(--line); font-size:13px; white-space:pre-line; }
+.note { margin-top:14px; font-size:13px; color:var(--muted); }
+.alert { margin-top:14px; padding:12px 14px; border-radius:9px; font-size:13px;
+         white-space:pre-line; border:1px solid var(--err); color:var(--err); }
 .err { color:#dc2626; font-size:13px; margin-top:12px; }
 label { display:block; font-size:12px; color:var(--muted); margin-bottom:5px; }
 hr { border:0; border-top:1px solid var(--line); margin:24px 0 18px; }
 .row { display:flex; gap:10px; align-items:center; }
 .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
 .hint { color:var(--muted); font-size:12px; margin-top:8px; }
-.ok { color:var(--ok); }
 """
 
 
@@ -88,7 +88,8 @@ def render_page() -> str:
   <div class="count-label">CV chưa có nội dung</div>
 
   <button id="run" disabled>Đang kiểm tra…</button>
-  <div class="status" id="status" hidden></div>
+  <div class="note" id="note" hidden></div>
+  <div class="alert" id="alert" hidden></div>
 
   <hr>
 
@@ -98,6 +99,7 @@ def render_page() -> str:
     <button class="ghost" id="save-time">Lưu giờ</button>
   </div>
   <div class="hint" id="schedule-hint">Đang tải…</div>
+  <div class="alert" id="schedule-alert" hidden></div>
 </div>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -107,15 +109,19 @@ function criteria() {{
   return {{ since: $('since').value || '', job: $('job').value.trim() }};
 }}
 
+// Chỉ hiện khi CÓ VẤN ĐỀ. Chạy êm thì im lặng — số đếm tụt xuống là bằng chứng đủ rõ.
+function fail(text) {{ const a = $('alert'); a.hidden = false; a.textContent = text; }}
+function clearFail() {{ $('alert').hidden = true; }}
+function note(text) {{ const n = $('note'); n.hidden = !text; n.textContent = text || ''; }}
+
 async function refresh() {{
-  const c = criteria();
-  const qs = new URLSearchParams(c).toString();
+  const qs = new URLSearchParams(criteria()).toString();
   $('run').disabled = true;
-  $('run').textContent = 'Đang đếm…';
   try {{
     const r = await fetch('/admin/pending?' + qs);
     const d = await r.json();
     if (d.error) throw new Error(d.error);
+    clearFail();
     $('count').textContent = d.pending;
     $('scope').textContent = 'Phạm vi: ' + d.scope;
     $('run').disabled = d.pending === 0;
@@ -131,11 +137,9 @@ async function refresh() {{
     }});
   }} catch (e) {{
     $('count').textContent = '—';
-    show('Không đếm được: ' + e.message);
+    fail('Không đếm được số CV: ' + e.message);
   }}
 }}
-
-function show(text) {{ const s = $('status'); s.hidden = false; s.textContent = text; }}
 
 let debounce = null;
 ['since', 'job'].forEach((id) => {{
@@ -157,15 +161,17 @@ async function loadSchedule() {{
     }}
     if (d.time) $('time').value = d.time;
     $('schedule-hint').textContent = d.time
-      ? 'Chạy mỗi ngày lúc ' + d.time + ' (' + d.timezone + '), xử lý mọi CV còn thiếu.'
+      ? 'Chạy mỗi ngày lúc ' + d.time + ' (' + d.timezone + '), xử lý CV trong 7 ngày gần nhất.'
       : 'Lịch hiện tại: ' + d.cron + ' (' + d.timezone + ')';
   }} catch (e) {{
-    $('schedule-hint').textContent = 'Không đọc được lịch: ' + e.message;
+    $('schedule-alert').hidden = false;
+    $('schedule-alert').textContent = 'Không đọc được lịch: ' + e.message;
   }}
 }}
 
 $('save-time').addEventListener('click', async () => {{
   $('save-time').disabled = true;
+  $('schedule-alert').hidden = true;
   try {{
     const r = await fetch('/admin/schedule', {{
       method: 'POST',
@@ -174,28 +180,48 @@ $('save-time').addEventListener('click', async () => {{
     }});
     const d = await r.json();
     if (d.error) throw new Error(d.error);
-    $('schedule-hint').innerHTML = '<span class="ok">Đã lưu.</span> Chạy mỗi ngày lúc ' + d.time;
+    $('schedule-hint').textContent =
+      'Chạy mỗi ngày lúc ' + d.time + ', xử lý CV trong 7 ngày gần nhất.';
   }} catch (e) {{
-    $('schedule-hint').textContent = 'Không lưu được: ' + e.message;
+    $('schedule-alert').hidden = false;
+    $('schedule-alert').textContent = 'Không lưu được giờ: ' + e.message;
   }} finally {{
     $('save-time').disabled = false;
   }}
 }});
 
 async function poll(execution) {{
-  const r = await fetch('/admin/status?execution=' + encodeURIComponent(execution));
-  const d = await r.json();
-  if (d.error) {{ show('Lỗi: ' + d.error); clearInterval(timer); return; }}
-  show(d.label + ' — thành công ' + d.succeeded + ', lỗi ' + d.failed);
-  if (d.finished) {{
+  let d;
+  try {{
+    const r = await fetch('/admin/status?execution=' + encodeURIComponent(execution));
+    d = await r.json();
+  }} catch (e) {{
     clearInterval(timer);
-    refresh();
+    note('');
+    fail('Mất kết nối khi theo dõi lượt chạy: ' + e.message);
+    return;
   }}
+
+  if (d.error) {{
+    clearInterval(timer);
+    note('');
+    fail('Lỗi khi theo dõi lượt chạy: ' + d.error);
+    return;
+  }}
+  if (!d.finished) return;
+
+  clearInterval(timer);
+  note('');
+  if (d.failed > 0) {{
+    fail('Lượt chạy kết thúc với lỗi. Mở log Cloud Run của job để xem CV nào hỏng.');
+  }}
+  refresh();
 }}
 
 $('run').addEventListener('click', async () => {{
   $('run').disabled = true;
-  show('Đang khởi động…');
+  clearFail();
+  note('Đang gửi yêu cầu…');
   try {{
     const r = await fetch('/admin/run', {{
       method: 'POST',
@@ -204,10 +230,11 @@ $('run').addEventListener('click', async () => {{
     }});
     const d = await r.json();
     if (d.error) throw new Error(d.error);
-    show('Đã khởi động (' + d.scope + '). Đang chạy nền, có thể đóng trang này.');
+    note('Đang chạy nền (' + d.scope + '). Có thể đóng trang này.');
     timer = setInterval(() => poll(d.execution), 5000);
   }} catch (e) {{
-    show('Không khởi động được: ' + e.message);
+    note('');
+    fail('Không khởi động được: ' + e.message);
     $('run').disabled = false;
   }}
 }});
