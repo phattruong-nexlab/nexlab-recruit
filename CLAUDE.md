@@ -6,13 +6,10 @@ Hướng dẫn cho Claude Code khi làm việc trong repo này.
 
 `nexlab-recruit` — service **scan CV** chạy theo lô trên Google Cloud.
 
-Cloud Run Job **nhân bản** đơn ứng tuyển từ bảng nguồn (Tally đổ vào) sang bảng
-gương, kèm CV được **upload vào Notion** thay vì để link ngoài. Nhờ vậy connector
-Notion của Claude mở được file — với `type: external` thì không.
+Cloud Run Job đọc CV của các đơn ứng tuyển rồi ghi text vào cột `Resume Content`
+của **chính dòng đó** trên bảng gốc. Chỉ một bảng Notion, không có bảng thứ hai.
 
 Chạy tự động lúc 2h sáng, hoặc HR bấm nút trên trang `/admin`.
-
-**Không đọc nội dung CV, không gọi LLM.**
 
 ## Cấu trúc repo
 
@@ -27,15 +24,17 @@ Không có frontend. Không có database.
 ## Luồng xử lý (bất biến)
 
 ```
-[đơn nguồn] − [Source ID đã có ở bảng gương]   ← phép TRỪ TẬP HỢP, không dùng mốc thời gian
+dòng có CV và `Resume Content` còn rỗng      ← điều kiện lọc, không dùng mốc thời gian
         │
-        ├→ tải PDF từ Tally → file_uploads.create → send
-        └→ pages.create: chép 64 cột + Resume(file Notion lưu) + Source ID
+        ├→ tải PDF từ Tally
+        ├→ markitdown → text
+        │     └ text < 200 ký tự (PDF scan) → Gemini 2.5 Flash đọc ảnh
+        └→ pages.update: ghi text vào `Resume Content` của chính dòng đó
 ```
 
-- **Không gọi LLM ở bất kỳ đâu.** Toàn bộ là chép giá trị property, deterministic.
-- **CV phải là `type: file`** ở bảng gương. `external` thì connector Claude không mở được.
-- **Tải CV lỗi ⇒ vẫn chép các cột còn lại.** Lượt sau link sống lại thì chép cả file.
+- **Thư viện trước, LLM sau.** OCR tốn tiền, chỉ gọi khi markitdown không moi được text.
+- **Cột đích chính là dấu hiệu đã xử lý.** Không cần cột khoá riêng, không cần bảng thứ hai.
+- **Một CV hỏng không làm chết cả lượt** — vào báo cáo, lượt sau tự nhặt lại.
 - **Cột `Source ID` là bộ nhớ duy nhất.** Không lưu checkpoint trong service; chạy lại
   bao nhiêu lần cũng không tạo dòng trùng, CV lỗi tự được nhặt lại ở lượt sau.
 - **Không bịa dữ liệu**: không tìm thấy field thì trả `null` / `[]`.
@@ -65,7 +64,7 @@ Dependency chỉ được trỏ **vào trong**: `interface → application → d
 cd backend
 uv sync --all-extras
 uv run python main.py                 # trang quản trị: http://localhost:8000/admin
-uv run python -m app.interface.jobs.mirror_rows --limit 2     # chạy thử job
+uv run python -m app.interface.jobs.extract_content --limit 3 # chạy thử job
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
 uv run mypy .
@@ -87,11 +86,11 @@ terraform apply -var-file=envs/dev/dev.tfvars
 
 ## Điều cần tránh
 
-- Không thêm bước gọi LLM — luồng này cố ý không có AI.
+- Không gọi LLM ở bước nào khác ngoài OCR cho PDF scan.
 - Không thêm database — service stateless, không có source of truth riêng.
 - Không thêm multi-agent / ADK.
 - Không import SDK bên ngoài vào `domain/`.
 - Không để trang `/admin` không có `ADMIN_PASSWORD` khi chạy ngoài local.
-- Không dùng mốc thời gian để nhớ đã xử lý tới đâu — luôn đối chiếu bằng `Source ID`.
+- Không dùng mốc thời gian để nhớ đã xử lý tới đâu — lọc theo `Resume Content` rỗng.
 - Không bỏ `ignore_changes = [schedule]` ở Cloud Scheduler — HR đổi giờ từ web,
   Terraform mà ghi đè thì giờ HR đặt biến mất trong im lặng.

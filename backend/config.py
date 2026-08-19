@@ -29,13 +29,18 @@ class Settings(BaseSettings):
     gcp_project_id: str = ""
     gcp_region: str = "asia-southeast1"
 
+    # --- OCR cho CV dạng ảnh scan (Gemini qua Vertex AI, không dùng API key) ---
+    ocr_enabled: bool = True
+    gemini_model: str = "gemini-2.5-flash"
+    vertex_location: str = "global"
+    ocr_timeout_seconds: int = 180
+
     # --- Notion ---
     notion_api_key: str = ""
     notion_source_data_source_id: str = ""
     """Data source NGUỒN — bảng đơn ứng tuyển do Tally đổ vào."""
 
-    notion_mirror_data_source_id: str = ""
-    """Data source bảng GƯƠNG — nơi nhân bản dòng kèm CV do Notion lưu."""
+    # Chỉ còn MỘT bảng: đọc CV và ghi text đều trên bảng nguồn.
 
     scan_concurrency: int = 4
     """Số dòng nhân bản song song. Notion ~3 req/s, mỗi dòng tốn ~5 lời gọi."""

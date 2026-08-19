@@ -1,30 +1,32 @@
-# nexlab-recruit — đồng bộ CV ứng viên
+# nexlab-recruit — trích nội dung CV
 
-Nhân bản đơn ứng tuyển từ Notion sang bảng gương, kèm CV **upload thẳng vào Notion**
-để connector của Claude mở được file.
+Đọc CV của các đơn ứng tuyển rồi ghi text vào cột `Resume Content` của chính dòng đó
+trên Notion. Từ đó người hay AI đọc được nội dung CV mà không phải mở PDF.
 
 ```
-Tally (form website)  →  Notion "Job Application"      ← nguồn, có sẵn
+Tally (form website)  →  Notion "Job Application"      ← một bảng duy nhất
                                     │
         ┌───────────────────────────┤
         │  Cloud Scheduler 02:00    │  HR bấm nút ở /admin
         └────────► Cloud Run Job ◄──┘
                         │
-        [đơn nguồn] − [Source ID đã có ở bảng gương]   ← phép trừ tập hợp
+        dòng có CV và `Resume Content` còn rỗng
                         │
-        tải PDF từ Tally  →  upload vào Notion  →  tạo dòng: 64 cột + Resume
+        tải PDF  →  markitdown  →  text
+                        └ PDF scan (text < 200 ký tự) → Gemini 2.5 Flash đọc ảnh
                         │
-        Notion "Job Application (1)"   ← Resume là type:file, Claude đọc được
+        pages.update: ghi text vào `Resume Content` của chính dòng đó
 ```
 
-**Không đọc nội dung CV, không gọi LLM.** Toàn bộ là chép giá trị property.
+**Thư viện trước, LLM sau.** markitdown xử lý phần lớn CV; chỉ PDF dạng ảnh scan mới
+gọi Gemini — OCR tốn tiền nên không dùng khi không cần.
 
-## Vì sao phải upload lại file
+## Vì sao ghi text chứ không upload file
 
-CV trong bảng nguồn là `type: external` — Notion chỉ giữ link trỏ sang
-`storage.tally.so`, không lưu file. Connector Notion của Claude chỉ tải được file
-do **Notion quản lý**, nên gặp `external` là bó tay. Đổi sang GCS cũng vô ích vì
-vẫn là link ngoài. Chỉ upload vào Notion mới đổi được `type` thành `file`.
+CV trong Notion là `type: external` trỏ sang `storage.tally.so` — connector của Claude
+chỉ mở được file do Notion quản lý nên bó tay. Ghi thẳng **text** vào một cột rich_text
+giải quyết triệt để: Claude, HR, hay bất kỳ công cụ nào đọc Notion đều thấy nội dung,
+không cần mở PDF, không tốn dung lượng lưu trữ Notion.
 
 ## Cấu trúc
 
@@ -41,11 +43,11 @@ AGENT.md             hướng dẫn chung cho mọi AI coding agent
 ```bash
 cd backend
 cp .env.example .env                    # điền NOTION_API_KEY, ADMIN_PASSWORD...
-gcloud auth application-default login   # gọi Cloud Run/Scheduler API bằng ADC
+gcloud auth application-default login   # Vertex AI + Cloud Run API dùng ADC
 uv sync --all-extras
 
 uv run python main.py                                       # localhost:8000/admin
-uv run python -m app.interface.jobs.mirror_rows --limit 5   # chạy thử job
+uv run python -m app.interface.jobs.extract_content --limit 3   # chạy thử job
 ```
 
 Chi tiết: [backend/README.md](backend/README.md) · [infra/README.md](infra/README.md) ·
@@ -53,11 +55,11 @@ Chi tiết: [backend/README.md](backend/README.md) · [infra/README.md](infra/RE
 
 ## Nguyên tắc thiết kế
 
-**Không có database, không có checkpoint.** Cột `Source ID` trên bảng gương chính là
-bộ nhớ. Mỗi lượt đọc lại cả hai bảng rồi trừ nhau — chạy lại bao nhiêu lần cũng không
-tạo dòng trùng, dòng lỗi tự được nhặt lại, đơn về muộn không bị sót.
+**Không có database, không có checkpoint.** Cột `Resume Content` rỗng hay không chính là
+dấu hiệu đã xử lý. Chạy lại bao nhiêu lần cũng không ghi đè cái đã xong, CV lỗi tự được
+nhặt lại ở lượt sau, CV về muộn không bị sót.
 
-**Một dòng hỏng không làm chết cả lượt.** Tải CV lỗi thì vẫn chép các cột còn lại.
+**Một CV hỏng không làm chết cả lượt.** Nó vào báo cáo lỗi và được thử lại lần sau.
 
 **HR tự chủ.** Đổi giờ chạy tự động và kích hoạt ngay đều làm được từ `/admin`,
 không cần vào Cloud Console.

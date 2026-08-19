@@ -80,3 +80,15 @@ variable "scan_timezone" {
   type    = string
   default = "Asia/Ho_Chi_Minh"
 }
+
+variable "vertex_location" {
+  description = "Vùng Vertex AI cho OCR. \"global\" tránh chuyện model chưa có ở region."
+  type        = string
+  default     = "global"
+}
+
+variable "gemini_model" {
+  description = "Model dùng để OCR CV dạng ảnh scan"
+  type        = string
+  default     = "gemini-2.5-flash"
+}

@@ -1,11 +1,12 @@
-"""Adapter: tìm đơn ứng tuyển chưa được quét, bằng cách đối chiếu hai bảng Notion.
+"""Adapter: tìm đơn ứng tuyển cần trích nội dung CV.
 
 Không dùng mốc thời gian ("đã xử lý tới lúc X") vì mốc lệch trong ba tình huống:
 Tally tạo dòng trước rồi mới upload CV, một CV lỗi giữa chừng, hoặc ứng viên sửa
-CV sau khi nộp. Phép trừ tập hợp không có mốc nào để lệch.
+CV sau khi nộp.
 
-Khoá đối chiếu là `page_id` của dòng nguồn — email không dùng được vì trong 3849
-đơn thật chỉ có 3192 email khác nhau, và ngay cả cặp (email, job) vẫn còn trùng.
+Điều kiện đơn giản hơn hẳn phiên bản trước: **có CV và cột `Resume Content` còn
+rỗng**. Chính cột đích là dấu hiệu đã xử lý — không cần cột khoá riêng, không cần
+đọc bảng thứ hai.
 """
 
 from __future__ import annotations
@@ -23,82 +24,68 @@ from app.domain.exceptions import DomainError
 logger = logging.getLogger(__name__)
 
 CV_PROPERTY = "Resume, CL"
-SOURCE_ID_COLUMN = "Source ID"
+CONTENT_PROPERTY = "Resume Content"
 
 
 class NotionApplicationSource(ApplicationSource):
-    def __init__(
-        self,
-        api_key: str,
-        source_data_source_id: str,
-        target_data_source_id: str,
-    ) -> None:
-        if not source_data_source_id:
+    def __init__(self, api_key: str, data_source_id: str) -> None:
+        if not data_source_id:
             raise ValueError("Thiếu NOTION_SOURCE_DATA_SOURCE_ID")
         self._client = Client(auth=api_key)
-        self._source_id = source_data_source_id
-        self._target_id = target_data_source_id
+        self._data_source_id = data_source_id
 
     async def list_pending(self, limit: int | None = None) -> list[PendingApplication]:
-        done = await self._processed_source_ids()
         pending: list[PendingApplication] = []
 
-        for page in await self._query_all(self._source_id):
-            if page["id"] in done:
+        for page in await self._query_pending():
+            file_url = _first_file_url(page)
+            if not file_url:  # chưa đính CV -> bỏ qua, lượt sau CV về thì làm
                 continue
-            pending.append(_to_pending(page))
+
+            pending.append(
+                PendingApplication(
+                    source_page_id=page["id"],
+                    candidate_name=_title(page) or "(chưa rõ tên)",
+                    file_url=file_url,
+                    properties=page.get("properties", {}),
+                    created_time=page.get("created_time"),
+                )
+            )
             if limit is not None and len(pending) >= limit:
                 break
 
-        logger.info("Còn %d đơn chưa nhân bản (đã có: %d)", len(pending), len(done))
+        logger.info("Còn %d CV chưa trích nội dung", len(pending))
         return pending
 
     async def count_pending(self) -> int:
         return len(await self.list_pending())
 
-    async def _processed_source_ids(self) -> set[str]:
-        """Tập `Source ID` đã có ở bảng đích."""
-        if not self._target_id:
-            return set()
+    async def _query_pending(self) -> list[dict[str, Any]]:
+        """Lọc ngay trên Notion để không phải tải về rồi mới loại.
 
-        done: set[str] = set()
-        for page in await self._query_all(self._target_id):
-            value = _rich_text(page, SOURCE_ID_COLUMN)
-            if value:
-                done.add(value)
-        return done
-
-    async def _query_all(self, data_source_id: str) -> list[dict[str, Any]]:
-        """Lấy hết dòng của một bảng (tự phân trang). Chạy trong thread vì SDK sync."""
+        Notion không lọc được "cột files không rỗng", nên chỉ lọc theo
+        `Resume Content` và kiểm tra CV ở phía client.
+        """
         pages: list[dict[str, Any]] = []
         cursor: str | None = None
+        query_filter = {"property": CONTENT_PROPERTY, "rich_text": {"is_empty": True}}
 
         while True:
             try:
                 response: Any = await asyncio.to_thread(
                     self._client.data_sources.query,
-                    data_source_id=data_source_id,
+                    data_source_id=self._data_source_id,
+                    filter=query_filter,
                     start_cursor=cursor,
                     page_size=100,
                 )
             except APIResponseError as exc:
-                raise DomainError(f"Không đọc được bảng {data_source_id}: {exc}") from exc
+                raise DomainError(f"Không đọc được bảng {self._data_source_id}: {exc}") from exc
 
             pages.extend(response["results"])
             if not response.get("has_more"):
                 return pages
             cursor = response["next_cursor"]
-
-
-def _to_pending(page: dict[str, Any]) -> PendingApplication:
-    """Dòng chưa đính CV vẫn được nhân bản — có dữ liệu vẫn hơn không có gì."""
-    return PendingApplication(
-        source_page_id=page["id"],
-        candidate_name=_title(page) or "(chưa rõ tên)",
-        file_url=_first_file_url(page),
-        properties=page.get("properties", {}),
-        created_time=page.get("created_time"),
-    )
 
 
 def _first_file_url(page: dict[str, Any]) -> str | None:
@@ -117,8 +104,3 @@ def _title(page: dict[str, Any]) -> str:
         if prop.get("type") == "title":
             return "".join(part.get("plain_text", "") for part in prop.get("title", []))
     return ""
-
-
-def _rich_text(page: dict[str, Any], name: str) -> str:
-    prop = page.get("properties", {}).get(name) or {}
-    return "".join(part.get("plain_text", "") for part in prop.get("rich_text", []))

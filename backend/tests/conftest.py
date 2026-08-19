@@ -7,8 +7,10 @@ from typing import Any
 import pytest
 
 from app.application.ports.application_source import ApplicationSource, PendingApplication
+from app.application.ports.content_writer import ResumeContentWriter
 from app.application.ports.cv_downloader import CvDownloader, DownloadedFile
-from app.application.ports.row_mirror import RowMirror
+from app.application.ports.cv_ocr import CvOcr
+from app.application.ports.cv_reader import CvReader
 from app.domain.exceptions import CandidatePublishError, CvDownloadError
 
 
@@ -37,16 +39,35 @@ class FakeSource(ApplicationSource):
         return len(self.items)
 
 
-class FakeMirror(RowMirror):
+class FakeReader(CvReader):
+    """`text` ngắn = giả lập PDF scan không có text layer."""
+
+    def __init__(self, text: str = "x" * 500) -> None:
+        self.text = text
+
+    def to_text(self, file: DownloadedFile) -> str:
+        return self.text
+
+
+class FakeOcr(CvOcr):
+    def __init__(self, text: str = "nội dung OCR " * 40) -> None:
+        self.text = text
+        self.calls: list[str] = []
+
+    async def to_text(self, file: DownloadedFile) -> str:
+        self.calls.append(file.filename)
+        return self.text
+
+
+class FakeWriter(ResumeContentWriter):
     def __init__(self, should_fail: bool = False) -> None:
         self.should_fail = should_fail
-        self.rows: list[tuple[PendingApplication, DownloadedFile | None]] = []
+        self.written: dict[str, str] = {}
 
-    async def mirror(self, application: PendingApplication, cv: DownloadedFile | None) -> str:
+    async def write(self, page_id: str, content: str) -> None:
         if self.should_fail:
             raise CandidatePublishError("Notion không phản hồi")
-        self.rows.append((application, cv))
-        return f"page-{len(self.rows)}"
+        self.written[page_id] = content
 
 
 def make_application(index: int, with_cv: bool = True) -> PendingApplication:

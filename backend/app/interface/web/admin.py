@@ -21,7 +21,7 @@ from starlette.routing import Route
 from app.domain.exceptions import DomainError
 from app.infrastructure.gcp.job_runner import CloudRunJobRunner
 from app.infrastructure.gcp.scheduler import CloudSchedulerClient
-from app.interface.dependencies import get_mirror_use_case
+from app.interface.dependencies import get_extract_use_case
 from app.interface.web.templates import render_login, render_page
 from config import get_settings
 
@@ -88,7 +88,7 @@ async def pending_count(request: Request) -> Response:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
     try:
-        pending = await get_mirror_use_case().count_pending()
+        pending = await get_extract_use_case().count_pending()
     except DomainError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
     return JSONResponse({"pending": pending})

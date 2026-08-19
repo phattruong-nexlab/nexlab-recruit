@@ -6,6 +6,7 @@ resource "google_project_service" "required" {
     "run.googleapis.com",
     "artifactregistry.googleapis.com",
     "secretmanager.googleapis.com",
+    "aiplatform.googleapis.com",
     "cloudscheduler.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
@@ -62,6 +63,14 @@ resource "google_secret_manager_secret_iam_member" "scan_cv_accessor" {
   member    = "serviceAccount:${google_service_account.scan_cv.email}"
 }
 
+# OCR cho CV dạng ảnh scan gọi Gemini qua Vertex AI, dùng chính danh tính của
+# service account — không cần API key.
+resource "google_project_iam_member" "vertex_user" {
+  project = var.project_id
+  role    = "roles/aiplatform.user"
+  member  = "serviceAccount:${google_service_account.scan_cv.email}"
+}
+
 # ---------------------------------------------------------------------------
 # Cloud Run service
 # ---------------------------------------------------------------------------
@@ -90,6 +99,8 @@ module "scan_cv" {
     GCP_REGION               = var.region
     CLOUD_RUN_JOB_NAME       = "${local.name_prefix}-scan-job"
     CLOUD_SCHEDULER_JOB_NAME = "${local.name_prefix}-daily-scan"
+    VERTEX_LOCATION          = var.vertex_location
+    GEMINI_MODEL             = var.gemini_model
   }
 
   secret_env_vars = local.app_secret_env_vars
@@ -124,7 +135,7 @@ resource "google_cloud_run_v2_job" "scan" {
 
       containers {
         image   = var.service_image
-        command = ["python", "-m", "app.interface.jobs.mirror_rows"]
+        command = ["python", "-m", "app.interface.jobs.extract_content"]
 
         resources {
           limits = {
@@ -144,6 +155,14 @@ resource "google_cloud_run_v2_job" "scan" {
         env {
           name  = "SCAN_CONCURRENCY"
           value = tostring(var.scan_concurrency)
+        }
+        env {
+          name  = "VERTEX_LOCATION"
+          value = var.vertex_location
+        }
+        env {
+          name  = "GEMINI_MODEL"
+          value = var.gemini_model
         }
 
         dynamic "env" {
@@ -173,6 +192,7 @@ resource "google_cloud_run_v2_job" "scan" {
   depends_on = [
     google_project_service.required,
     google_secret_manager_secret_iam_member.scan_cv_accessor,
+    google_project_iam_member.vertex_user,
   ]
 }
 

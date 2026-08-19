@@ -47,7 +47,9 @@ class CloudRunJobRunner:
     async def start(self) -> str:
         """Kích hoạt job, trả về tên execution để theo dõi."""
         url = f"{_API}/projects/{self._project}/locations/{self._region}/jobs/{self._job}:run"
-        payload = await self._api.request("POST", url)
+        # Body rỗng là bắt buộc: POST không có body thì httpx bỏ Content-Length,
+        # và Google trả 411 Length Required.
+        payload = await self._api.request("POST", url, json={})
         # Long-running operation: tên execution nằm trong metadata.
         name = (payload.get("metadata") or {}).get("name") or payload.get("name", "")
         logger.info("Đã kích hoạt job %s -> %s", self._job, name)

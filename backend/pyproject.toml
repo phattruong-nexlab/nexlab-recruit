@@ -13,6 +13,8 @@ dependencies = [
     "notion-client>=2.2",
     "itsdangerous>=2.2.0",
     "google-auth[requests]>=2.56.3",
+    "markitdown[pdf]>=0.1.7",
+    "google-genai>=2.18.1",
 ]
 
 [project.optional-dependencies]
@@ -64,7 +66,7 @@ exclude = ["^tests/"]
 [[tool.mypy.overrides]]
 # numpy (markitdown kéo theo) có stub dùng cú pháp `type` của Python 3.12 nên mypy
 # đang chạy ở python_version 3.11 sẽ vỡ khi đọc. Không cần type-check SDK bên ngoài.
-module = ["notion_client.*", "google.auth.*", "google.*"]
+module = ["numpy.*", "markitdown.*", "notion_client.*", "google.*"]
 ignore_missing_imports = true
 follow_imports = "skip"
 

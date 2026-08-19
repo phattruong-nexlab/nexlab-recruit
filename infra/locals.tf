@@ -12,7 +12,6 @@ locals {
   #   gcloud secrets versions add <name> --data-file=-
   app_secret_ids = [
     "notion-api-key",
-    "notion-mirror-data-source-id",
     "admin-password",
     "notion-source-data-source-id",
   ]
@@ -21,7 +20,6 @@ locals {
   app_secret_env_vars = {
     NOTION_API_KEY               = module.secrets.secret_ids["notion-api-key"]
     NOTION_SOURCE_DATA_SOURCE_ID = module.secrets.secret_ids["notion-source-data-source-id"]
-    NOTION_TARGET_DATA_SOURCE_ID = module.secrets.secret_ids["notion-mirror-data-source-id"]
     ADMIN_PASSWORD               = module.secrets.secret_ids["admin-password"]
   }
 }

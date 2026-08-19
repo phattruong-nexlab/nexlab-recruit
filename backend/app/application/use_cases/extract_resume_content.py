@@ -1,7 +1,7 @@
-"""Use case: nhân bản đơn ứng tuyển sang bảng gương, kèm CV do Notion lưu.
+"""Use case: đọc nội dung CV rồi ghi vào cột `Resume Content` của chính dòng đó.
 
-Không đọc nội dung CV, không gọi LLM. Chỉ chép giá trị cột và biến file `external`
-(Tally) thành file Notion tự lưu — để connector của Claude mở được.
+Không trích xuất field, không suy luận — chỉ lấy nguyên văn text để về sau người
+hoặc AI đọc được mà không cần mở PDF.
 """
 
 from __future__ import annotations
@@ -11,25 +11,33 @@ import logging
 
 from app.application.dto.scan import ScanFailure, ScanSummary
 from app.application.ports.application_source import ApplicationSource, PendingApplication
-from app.application.ports.cv_downloader import CvDownloader, DownloadedFile
-from app.application.ports.row_mirror import RowMirror
-from app.domain.exceptions import CvDownloadError, DomainError
+from app.application.ports.content_writer import ResumeContentWriter
+from app.application.ports.cv_downloader import CvDownloader
+from app.application.ports.cv_ocr import CvOcr
+from app.application.ports.cv_reader import CvReader
+from app.domain.exceptions import DomainError
 
 logger = logging.getLogger(__name__)
 
+# Ít hơn ngần này ký tự thì coi như PDF không có text layer (bản scan ảnh).
+MIN_TEXT_CHARS = 200
 
-class MirrorApplicationsUseCase:
+
+class ExtractResumeContentUseCase:
     def __init__(
         self,
         source: ApplicationSource,
         downloader: CvDownloader,
-        mirror: RowMirror,
+        reader: CvReader,
+        writer: ResumeContentWriter,
+        ocr: CvOcr | None = None,
         concurrency: int = 4,
     ) -> None:
         self._source = source
         self._downloader = downloader
-        self._mirror = mirror
-        # Notion giới hạn ~3 req/s, mỗi dòng tốn ~5 lời gọi nên đừng đẩy quá cao.
+        self._reader = reader
+        self._writer = writer
+        self._ocr = ocr
         self._semaphore = asyncio.Semaphore(max(1, concurrency))
 
     async def count_pending(self) -> int:
@@ -40,10 +48,10 @@ class MirrorApplicationsUseCase:
         summary = ScanSummary(total=len(pending))
 
         if not pending:
-            logger.info("Không có dòng nào cần nhân bản.")
+            logger.info("Không có đơn nào cần trích nội dung.")
             return summary
 
-        logger.info("Nhân bản %d dòng", len(pending))
+        logger.info("Trích nội dung %d CV", len(pending))
         results = await asyncio.gather(*(self._process(item) for item in pending))
 
         for application, failure in zip(pending, results, strict=True):
@@ -63,18 +71,27 @@ class MirrorApplicationsUseCase:
         return summary
 
     async def _process(self, application: PendingApplication) -> str | None:
-        """None = thành công. Lỗi một dòng không làm chết cả lượt."""
-        async with self._semaphore:
-            cv: DownloadedFile | None = None
-            try:
-                if application.file_url:
-                    cv = await self._downloader.download(application.file_url)
-            except CvDownloadError as exc:
-                # Tải CV hỏng thì vẫn chép các cột còn lại — có dữ liệu vẫn hơn không.
-                logger.warning("Không tải được CV của %s: %s", application.candidate_name, exc)
+        """None = thành công. Lỗi một CV không làm chết cả lượt."""
+        if not application.file_url:
+            return "Chưa đính CV"
 
+        async with self._semaphore:
             try:
-                await self._mirror.mirror(application, cv)
+                file = await self._downloader.download(application.file_url)
+
+                # Thư viện trước, OCR sau — OCR tốn tiền nên chỉ dùng khi cần.
+                text = self._reader.to_text(file)
+                if len(text) < MIN_TEXT_CHARS:
+                    if self._ocr is None:
+                        return f"PDF không có text ({len(text)} ký tự) và chưa bật OCR"
+                    logger.info(
+                        "%s: chỉ đọc được %d ký tự, chuyển sang OCR",
+                        application.candidate_name,
+                        len(text),
+                    )
+                    text = await self._ocr.to_text(file)
+
+                await self._writer.write(application.source_page_id, text)
             except DomainError as exc:
                 logger.warning("Lỗi %s: %s", application.candidate_name, exc)
                 return f"{type(exc).__name__}: {exc}"

@@ -9,14 +9,14 @@ import pytest
 from starlette.applications import Starlette
 
 from app.application.dto.scan import ScanSummary
-from app.application.use_cases.mirror_applications import MirrorApplicationsUseCase
+from app.application.use_cases.extract_resume_content import ExtractResumeContentUseCase
 from app.interface.web import admin as admin_module
 
 _PASSWORD = "hr-secret"
 
 
-class FakeScan(MirrorApplicationsUseCase):
-    """Chỉ cần đếm — không chạm Notion, không gọi LLM."""
+class FakeScan(ExtractResumeContentUseCase):
+    """Chỉ cần đếm — không chạm Notion."""
 
     def __init__(self, pending: int) -> None:  # không gọi super()
         self._pending = pending
@@ -36,7 +36,7 @@ def app(monkeypatch: pytest.MonkeyPatch) -> Starlette:
     from config import get_settings
 
     get_settings.cache_clear()
-    monkeypatch.setattr(admin_module, "get_mirror_use_case", lambda: FakeScan(12))
+    monkeypatch.setattr(admin_module, "get_extract_use_case", lambda: FakeScan(12))
 
     import main
 

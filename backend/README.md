@@ -1,11 +1,11 @@
-# Backend — nexlab đồng bộ CV
+# Backend — nexlab trích nội dung CV
 
 Python 3.11, kiến trúc **DDD / Clean Architecture**. Một image, hai entrypoint:
 
 | Entrypoint | Chạy ở đâu | Việc |
 |---|---|---|
 | `main.py` (Starlette) | Cloud Run **Service** | Trang `/admin` cho HR bấm nút, `/health` |
-| `app.interface.jobs.mirror_rows` | Cloud Run **Job** | Nhân bản đơn sang bảng gương + upload CV |
+| `app.interface.jobs.extract_content` | Cloud Run **Job** | Đọc CV rồi ghi text vào `Resume Content` |
 
 Service **không** làm việc nặng — nút bấm chỉ kích hoạt job qua Cloud Run Admin API
 rồi hỏi tiến độ.
@@ -13,17 +13,17 @@ rồi hỏi tiến độ.
 ## Luồng xử lý
 
 ```
-[đơn nguồn] − [Source ID đã có ở bảng gương]     ← phép trừ tập hợp
+dòng có CV và `Resume Content` còn rỗng
         │
         ├→ tải PDF từ Tally
-        ├→ file_uploads.create → send            ← đưa file vào Notion
-        └→ pages.create: chép 64 cột + Resume(type:file) + Source ID
+        ├→ markitdown → text
+        │     └ text < 200 ký tự (PDF scan) → Gemini 2.5 Flash đọc ảnh
+        └→ pages.update: ghi vào `Resume Content` của chính dòng đó
 ```
 
-Không gọi LLM. Chép property là code thuần trong
-`infrastructure/notion/property_copier.py`.
+Thư viện trước, LLM sau — OCR chỉ chạy khi markitdown không moi được text.
 
-Không có checkpoint: cột `Source ID` trên bảng gương là bộ nhớ duy nhất.
+Không có checkpoint: cột `Resume Content` rỗng hay không chính là dấu hiệu đã xử lý.
 
 ## Cấu trúc
 
@@ -34,11 +34,14 @@ backend/
 ├── app/
 │   ├── domain/                 # ❶ Pure Python: exceptions
 │   ├── application/            # ❷ Use case + ports
-│   │   ├── ports/              #    CvDownloader · ApplicationSource · RowMirror
-│   │   └── use_cases/          #    MirrorApplicationsUseCase
+│   │   ├── ports/              #    CvDownloader · CvReader · CvOcr
+│   │   │                       #    ApplicationSource · ResumeContentWriter
+│   │   └── use_cases/          #    ExtractResumeContentUseCase
 │   ├── infrastructure/         # ❸ Adapters
 │   │   ├── http/               #    tải file (chặn SSRF, giới hạn dung lượng)
-│   │   ├── notion/             #    đọc nguồn, chép property, upload file, tạo dòng
+│   │   ├── reader/             #    markitdown → text
+│   │   ├── llm/                #    Gemini OCR cho PDF scan (Vertex AI)
+│   │   ├── notion/             #    tìm dòng cần xử lý, ghi Resume Content
 │   │   └── gcp/                #    kích hoạt Cloud Run Job, đổi lịch Scheduler
 │   └── interface/
 │       ├── dependencies.py     # ❹ composition root
@@ -56,10 +59,10 @@ gcloud auth application-default login   # gọi Cloud Run/Scheduler API bằng A
 uv sync --all-extras
 
 uv run python main.py                   # http://localhost:8000/admin
-uv run python -m app.interface.jobs.mirror_rows --limit 5
+uv run python -m app.interface.jobs.extract_content --limit 3
 ```
 
-`--limit` để thử vài dòng trước khi chạy cả lượt.
+`--limit` để thử vài CV trước khi chạy cả lượt.
 
 ## Kiểm tra
 
@@ -69,18 +72,17 @@ uv run mypy .
 uv run pytest
 ```
 
-## Cấu hình bảng gương
+## Cấu hình bảng Notion
 
-Bảng gương phải có cột **trùng tên và trùng kiểu** với bảng nguồn — cột nào lệch sẽ bị
-bỏ qua kèm cảnh báo trong log, không làm hỏng cả dòng. Ngoài ra bắt buộc có:
+Bảng nguồn cần đúng hai cột:
 
 | Cột | Kiểu | Việc |
 |---|---|---|
-| `Source ID` | rich_text | Khoá chống trùng. Thiếu nó thì mỗi lượt nhân bản lại từ đầu. |
-| `Resume` | files | Nơi đặt CV do Notion lưu (`type: file`). |
+| `Resume, CL` | files | CV do Tally đổ vào (link `external`) |
+| `Resume Content` | rich_text | Nơi ghi text đã trích. Rỗng = chưa xử lý. |
 
-Cột Notion tự sinh (`created_time`, `formula`, `rollup`...) bị bỏ qua vì ghi vào sẽ lỗi
-400. Lưu ý `Created time` ở bảng gương là **lúc nhân bản**, không phải lúc nộp đơn.
+Notion giới hạn 2000 ký tự mỗi text object nên nội dung dài được cắt thành nhiều mảnh
+trong cùng property; tối đa 100 mảnh (200.000 ký tự).
 
 Xem schema:
 

@@ -9,7 +9,7 @@ from typing import Any
 
 @dataclass(slots=True)
 class PendingApplication:
-    """Một đơn ứng tuyển chưa có mặt ở bảng gương."""
+    """Một đơn ứng tuyển có CV nhưng chưa có nội dung đã trích."""
 
     source_page_id: str
     candidate_name: str
@@ -17,7 +17,7 @@ class PendingApplication:
     """Link CV ở cột "Resume, CL"; None nếu ứng viên chưa đính file."""
 
     properties: dict[str, Any] = field(default_factory=dict)
-    """Nguyên `page["properties"]` của dòng nguồn, để chép sang bảng gương."""
+    """Nguyên `page["properties"]` của dòng nguồn."""
 
     created_time: str | None = None
 
@@ -25,7 +25,7 @@ class PendingApplication:
 class ApplicationSource(ABC):
     @abstractmethod
     async def list_pending(self, limit: int | None = None) -> list[PendingApplication]:
-        """Đơn ở bảng nguồn, trừ đi những đơn đã có mặt ở bảng gương.
+        """Đơn có CV mà cột đích còn rỗng.
 
         Là phép TRỪ TẬP HỢP chứ không phải mốc thời gian: chạy lại bao nhiêu lần
         cũng ra đúng, đơn lỗi hôm trước tự được nhặt lại, CV về muộn cũng không sót.
