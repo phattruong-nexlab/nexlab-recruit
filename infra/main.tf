@@ -137,6 +137,11 @@ resource "google_cloud_run_v2_job" "scan" {
         image   = var.service_image
         command = ["python", "-m", "app.interface.jobs.extract_content"]
 
+        # Cửa sổ trượt cho lượt chạy TỰ ĐỘNG: đủ rộng để bù khi lỡ vài đêm,
+        # nhưng không đụng tồn đọng cũ (hiện có ~3800 CV chưa xử lý).
+        # HR bấm nút trên /admin sẽ ghi đè args này cho riêng lần đó.
+        args = ["--since-days", tostring(var.scan_window_days)]
+
         resources {
           limits = {
             cpu    = "2"

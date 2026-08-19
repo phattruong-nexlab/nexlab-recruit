@@ -92,3 +92,15 @@ variable "gemini_model" {
   type        = string
   default     = "gemini-2.5-flash"
 }
+
+variable "scan_window_days" {
+  description = <<-EOT
+    Lượt chạy tự động chỉ xử lý đơn trong N ngày gần nhất.
+
+    Đặt cửa sổ thay vì "tất cả những gì còn thiếu" để đêm đầu tiên không nuốt
+    trọn tồn đọng cũ. Vẫn tự bù được nếu lỡ vài đêm, miễn không quá N ngày.
+    Muốn xử lý tồn đọng thì chạy tay từ trang /admin với mốc ngày cụ thể.
+  EOT
+  type        = number
+  default     = 7
+}

@@ -14,6 +14,7 @@ import argparse
 import asyncio
 import logging
 import sys
+from datetime import UTC, datetime, timedelta
 
 from app.application.ports.application_source import PendingFilter
 from app.interface.dependencies import get_extract_use_case
@@ -37,7 +38,17 @@ async def run(limit: int | None, pending_filter: PendingFilter) -> int:
     return 0 if summary.all_ok else 1
 
 
+def _force_utf8_console() -> None:
+    """Console Windows mặc định cp1252, in tiếng Việt sẽ UnicodeEncodeError."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 def main(argv: list[str] | None = None) -> int:
+    _force_utf8_console()
+
     parser = argparse.ArgumentParser(description="Đọc CV rồi ghi text vào cột Resume Content.")
     parser.add_argument(
         "--limit",
@@ -52,6 +63,16 @@ def main(argv: list[str] | None = None) -> int:
         help="Chỉ xử lý đơn nộp từ ngày này trở đi",
     )
     parser.add_argument(
+        "--since-days",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Cửa sổ trượt: chỉ xử lý đơn trong N ngày gần nhất. Dùng cho lượt chạy "
+            "tự động — đủ rộng để bù khi lỡ vài đêm, nhưng không đụng tồn đọng cũ."
+        ),
+    )
+    parser.add_argument(
         "--job",
         default=None,
         metavar="SLUG",
@@ -62,7 +83,13 @@ def main(argv: list[str] | None = None) -> int:
     settings = get_settings()
     logging.basicConfig(level=settings.log_level, format="%(levelname)s %(message)s")
 
-    pending_filter = PendingFilter(since=args.since, job_url_contains=args.job)
+    since = args.since
+    if since is None and args.since_days is not None:
+        # Tính tại thời điểm chạy, không phải lúc cấu hình — nhờ vậy cửa sổ luôn trượt.
+        since = (datetime.now(UTC) - timedelta(days=args.since_days)).date().isoformat()
+        logger.info("Cửa sổ %d ngày gần nhất -> từ %s", args.since_days, since)
+
+    pending_filter = PendingFilter(since=since, job_url_contains=args.job)
     logger.info("Phạm vi: %s", pending_filter.describe())
     return asyncio.run(run(args.limit, pending_filter))
 
