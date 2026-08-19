@@ -70,6 +70,12 @@ resource "google_cloud_run_v2_service" "this" {
       template[0].containers[0].image,
       client,
       client_version,
+
+      # Khối `scaling` CẤP SERVICE (khác với scaling trong template ở trên) —
+      # API luôn trả về nó kèm manual_instance_count, còn config không khai, nên
+      # mọi lần plan đều thấy "1 to change" và CI chạy apply thừa vô ích.
+      # Số instance min/max thật vẫn do template[0].scaling quản, không bị ảnh hưởng.
+      scaling,
     ]
   }
 }

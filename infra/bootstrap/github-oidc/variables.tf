@@ -32,6 +32,7 @@ variable "deployer_roles" {
     "roles/iam.serviceAccountAdmin",         # tạo service account cho Cloud Run
     "roles/iam.serviceAccountUser",          # deploy service chạy dưới danh nghĩa SA đó
     "roles/serviceusage.serviceUsageAdmin",  # bật API trên project
-    "roles/resourcemanager.projectIamAdmin", # gán roles/aiplatform.user cho SA của Cloud Run
+    "roles/resourcemanager.projectIamAdmin", # gán quyền project cho SA của Cloud Run
+    "roles/cloudscheduler.admin",            # tạo/đọc Cloud Scheduler job
   ]
 }
