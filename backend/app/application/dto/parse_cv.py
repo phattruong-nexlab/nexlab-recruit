@@ -14,6 +14,8 @@ class ParseCvCommand:
     email: str | None = None
     phone: str | None = None
     created_time: str | None = None
+    source_page_id: str | None = None
+    """page_id của dòng nguồn — khoá để đối chiếu đã xử lý hay chưa."""
 
 
 @dataclass(slots=True)

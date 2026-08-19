@@ -114,4 +114,5 @@ def _to_candidate(extracted: ExtractedCv, command: ParseCvCommand) -> Candidate:
         job_url=command.job_url,
         applied_at=command.created_time,
         source_file_url=command.file_url,
+        source_page_id=command.source_page_id,
     )

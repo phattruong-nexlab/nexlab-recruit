@@ -30,6 +30,7 @@ class Candidate:
     job_url: str | None = None
     applied_at: str | None = None
     source_file_url: str | None = None
+    source_page_id: str | None = None
 
     def reindex_experiences(self) -> None:
         """Đánh lại order_index theo đúng thứ tự xuất hiện trong CV."""

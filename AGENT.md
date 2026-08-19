@@ -6,20 +6,21 @@ Hướng dẫn chung cho mọi AI coding agent làm việc trên repo `nexlab-re
 
 ## Bối cảnh
 
-Service **scan CV** chạy như **MCP server**. Agent Notion gọi tool `parse_cv` với link
-file CV + vài field từ đơn ứng tuyển; service trả về thông tin đã trích xuất và ghi
-một dòng vào bảng Notion đích.
+Service **scan CV** chạy theo lô. Cloud Run Job đối chiếu bảng đơn ứng tuyển với bảng
+kết quả, xử lý CV chưa có rồi ghi vào bảng đích. Kích hoạt bằng Cloud Scheduler hoặc
+bằng nút bấm trên trang `/admin` cho HR.
 
 ## Bản đồ thư mục
 
 | Thư mục | Nội dung |
 |---|---|
 | `backend/app/domain/` | Entity, value object, domain service — pure Python |
-| `backend/app/application/` | Use case `ParseCvUseCase` + ports (ABC) |
-| `backend/app/infrastructure/` | Adapters: httpx, markitdown, Gemini, Notion |
-| `backend/app/interface/mcp/` | MCP server, tool `parse_cv`, Bearer auth, DI |
+| `backend/app/application/` | `ParseCvUseCase`, `ScanPendingUseCase` + ports (ABC) |
+| `backend/app/infrastructure/` | Adapters: httpx, markitdown, Vertex AI, Notion, Cloud Run API |
+| `backend/app/interface/jobs/` | Entrypoint cho Cloud Run Job |
+| `backend/app/interface/web/` | Trang quản trị cho HR (HTML render từ server) |
 | `backend/scripts/` | Script chạy tay: tải CV từ Notion về máy |
-| `infra/` | Terraform cho Cloud Run |
+| `infra/` | Terraform |
 
 ## Nguyên tắc bắt buộc
 
@@ -28,8 +29,9 @@ một dòng vào bảng Notion đích.
 3. **Một lần gọi LLM**: chỉ trong `CvExtractor`. Mapping Notion là code thuần.
 4. **Config tập trung**: đọc env duy nhất qua `backend/config.py`.
 5. **Không bịa dữ liệu**: thiếu field thì `null` / `[]`.
-6. **Ghi Notion lỗi ⇒ vẫn trả kết quả** phân tích cho agent.
-7. **Secret không vào git**: chỉ commit `*.example`. CV đã tải (`backend/data/`) cũng không.
+6. **Đối chiếu bằng `Source ID`**, không dùng mốc thời gian.
+7. **Một CV hỏng không làm chết cả lượt** — gom vào báo cáo, lượt sau nhặt lại.
+8. **Secret không vào git**: chỉ commit `*.example`. CV đã tải (`backend/data/`) cũng không.
 
 ## Trước khi kết thúc một task
 
@@ -40,5 +42,5 @@ cd infra   && terraform fmt -check -recursive && terraform validate
 
 ## Ngoài phạm vi (đừng tự ý thêm)
 
-Frontend · database / persistence · OCR cho CV scan ảnh · embedding / semantic search ·
-đọc ngược dữ liệu từ Notion · multi-agent hay ADK · gọi LLM ở bước ngoài extraction.
+Frontend SPA · database / persistence · OCR cho CV scan ảnh · embedding / semantic
+search · multi-agent hay ADK · gọi LLM ở bước ngoài extraction · checkpoint theo thời gian.

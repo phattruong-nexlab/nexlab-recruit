@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 from app.domain.entities.candidate import Candidate
@@ -39,6 +40,9 @@ def _value_of(candidate: Candidate) -> dict[str, Any]:
         "applied_at": candidate.applied_at,
         "cv_url": candidate.source_file_url,
         "years_of_experience": candidate.total_experience_years,
+        "source_id": candidate.source_page_id,
+        "scan_status": "Đã quét",
+        "scanned_at": datetime.now(UTC).isoformat(),
     }
 
 
@@ -56,6 +60,9 @@ FIELD_TO_COLUMN: dict[str, str] = {
     "email": "Email",
     "phone": "Phone",
     "cv_url": "Resume, CL",
+    "source_id": "Source ID",
+    "scan_status": "Scan status",
+    "scanned_at": "Scanned at",
     # Bảng đích không có cột cho các field dưới đây; giữ lại để nếu sau này thêm
     # cột thì chỉ cần đặt đúng tên là chạy, không phải sửa code.
     "job_url": "Job URL",

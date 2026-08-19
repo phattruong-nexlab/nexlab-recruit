@@ -7,8 +7,10 @@ from functools import lru_cache
 
 from app.application.ports.candidate_publisher import CandidatePublisher
 from app.application.use_cases.parse_cv import ParseCvUseCase
+from app.application.use_cases.scan_pending import ScanPendingUseCase
 from app.infrastructure.http.file_downloader import HttpCvDownloader
 from app.infrastructure.llm.gemini_cv_extractor import GeminiCvExtractor
+from app.infrastructure.notion.application_source import NotionApplicationSource
 from app.infrastructure.notion.notion_publisher import NotionCandidatePublisher
 from app.infrastructure.reader.markitdown_reader import MarkItDownCvReader
 from config import get_settings
@@ -44,4 +46,20 @@ def get_parse_cv_use_case() -> ParseCvUseCase:
             timeout_seconds=settings.gemini_timeout_seconds,
         ),
         publisher=publisher,
+    )
+
+
+@lru_cache
+def get_scan_pending_use_case() -> ScanPendingUseCase:
+    """Dùng chung cho Cloud Run Job (chạy theo lịch) và nút bấm ở trang quản trị."""
+    settings = get_settings()
+
+    return ScanPendingUseCase(
+        source=NotionApplicationSource(
+            api_key=settings.notion_api_key,
+            source_data_source_id=settings.notion_source_data_source_id,
+            target_data_source_id=settings.notion_target_data_source_id,
+        ),
+        parse_cv=get_parse_cv_use_case(),
+        concurrency=settings.scan_concurrency,
     )

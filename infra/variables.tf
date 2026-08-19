@@ -59,3 +59,26 @@ variable "gemini_model" {
   type    = string
   default = "gemini-2.5-flash"
 }
+
+variable "scan_concurrency" {
+  description = "Số CV xử lý song song trong một lượt quét"
+  type        = number
+  default     = 4
+}
+
+variable "scan_timeout_seconds" {
+  description = "Thời gian tối đa cho một lượt quét (mặc định 2 giờ)"
+  type        = number
+  default     = 7200
+}
+
+variable "scan_schedule" {
+  description = "Lịch cron cho lượt quét tự động. Rỗng = chỉ chạy khi HR bấm nút."
+  type        = string
+  default     = "0 18 * * *"
+}
+
+variable "scan_timezone" {
+  type    = string
+  default = "Asia/Ho_Chi_Minh"
+}

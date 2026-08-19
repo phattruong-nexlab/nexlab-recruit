@@ -26,11 +26,6 @@ class Settings(BaseSettings):
     environment: Literal["local", "dev", "prod"] = "local"
     log_level: str = "INFO"
 
-    # --- MCP ---
-    mcp_path: str = "/mcp"
-    mcp_auth_token: str = ""
-    """Bearer token tĩnh mà agent phải gửi kèm. Rỗng = tắt kiểm tra (chỉ dùng local)."""
-
     # --- Gemini qua Vertex AI ---
     # Không dùng API key: xác thực bằng Application Default Credentials.
     # Trên Cloud Run là service account gắn vào service; ở máy local là
@@ -38,14 +33,28 @@ class Settings(BaseSettings):
     gcp_project_id: str = ""
     """Để trống thì SDK tự lấy từ ADC / GOOGLE_CLOUD_PROJECT."""
 
+    gcp_region: str = "asia-southeast1"
     vertex_location: str = "global"
     gemini_model: str = "gemini-2.5-flash"
     gemini_timeout_seconds: int = 120
 
     # --- Notion ---
     notion_api_key: str = ""
+    notion_source_data_source_id: str = ""
+    """Data source NGUỒN — bảng đơn ứng tuyển do Tally đổ vào."""
+
     notion_target_data_source_id: str = ""
-    """Data source (bảng) đích để ghi kết quả trích xuất."""
+    """Data source (bảng) ĐÍCH để ghi kết quả trích xuất."""
+
+    scan_concurrency: int = 4
+    """Số CV xử lý song song trong một lượt quét."""
+
+    # --- Trang quản trị cho HR ---
+    cloud_run_job_name: str = ""
+    """Tên Cloud Run Job mà nút bấm sẽ kích hoạt."""
+
+    admin_password: str = ""
+    """Mật khẩu dùng chung. Rỗng = KHÔNG chặn (chỉ chấp nhận được khi chạy local)."""
 
     # --- Tải file CV ---
     download_timeout_seconds: float = 60.0
@@ -66,10 +75,6 @@ class Settings(BaseSettings):
 
     Rỗng = cho phép mọi host (chỉ nên dùng khi chạy local).
     """
-
-    @property
-    def auth_enabled(self) -> bool:
-        return bool(self.mcp_auth_token)
 
 
 @lru_cache
