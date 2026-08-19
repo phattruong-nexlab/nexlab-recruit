@@ -56,19 +56,39 @@ jobs:
           docker push "$REGISTRY/scan-cv:latest"
           echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
-      - name: Deploy Cloud Run
+      # Service và Job dùng CHUNG image nhưng là hai tài nguyên riêng — quên
+      # cập nhật Job thì nó chạy mãi image cũ mà không ai nhận ra.
+      - name: Deploy Cloud Run service
         run: |
-          gcloud run deploy "${{ env.APP_NAME }}-${{ env.ENVIRONMENT }}-mcp" \
+          gcloud run deploy "${{ env.APP_NAME }}-${{ env.ENVIRONMENT }}-web" \
             --image "$IMAGE" \
             --region "${{ secrets.GCP_REGION }}" \
             --project "${{ secrets.GCP_PROJECT_ID }}" \
             --quiet
 
-      - name: Kiểm tra service còn sống
+      - name: Cập nhật Cloud Run job
         run: |
-          URL=$(gcloud run services describe "${{ env.APP_NAME }}-${{ env.ENVIRONMENT }}-mcp" \
+          gcloud run jobs update "${{ env.APP_NAME }}-${{ env.ENVIRONMENT }}-scan-job" \
+            --image "$IMAGE" \
+            --region "${{ secrets.GCP_REGION }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --quiet
+
+      - name: Kiểm tra sau khi deploy
+        run: |
+          URL=$(gcloud run services describe "${{ env.APP_NAME }}-${{ env.ENVIRONMENT }}-web" \
             --region "${{ secrets.GCP_REGION }}" \
             --project "${{ secrets.GCP_PROJECT_ID }}" \
             --format 'value(status.url)')
-          echo "MCP endpoint: $URL/mcp"
+          echo "Trang quản trị: $URL/admin"
           curl -fsS "$URL/health" && echo
+
+          ON_JOB=$(gcloud run jobs describe "${{ env.APP_NAME }}-${{ env.ENVIRONMENT }}-scan-job" \
+            --region "${{ secrets.GCP_REGION }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --format 'value(spec.template.spec.template.spec.containers[0].image)')
+          echo "Image trên job: $ON_JOB"
+          if [ "$ON_JOB" != "$IMAGE" ]; then
+            echo "Job vẫn dùng image cũ — deploy chưa trọn vẹn." >&2
+            exit 1
+          fi
