@@ -14,9 +14,9 @@ import argparse
 import asyncio
 import logging
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
-from app.application.ports.application_source import PendingFilter
+from app.application.ports.application_source import VN_TZ, PendingFilter
 from app.interface.dependencies import get_extract_use_case
 from config import get_settings
 
@@ -86,7 +86,8 @@ def main(argv: list[str] | None = None) -> int:
     since = args.since
     if since is None and args.since_days is not None:
         # Tính tại thời điểm chạy, không phải lúc cấu hình — nhờ vậy cửa sổ luôn trượt.
-        since = (datetime.now(UTC) - timedelta(days=args.since_days)).date().isoformat()
+        # Đếm ngày theo GIỜ VIỆT NAM để khớp với cách HR hiểu "N ngày gần nhất".
+        since = (datetime.now(VN_TZ) - timedelta(days=args.since_days)).date().isoformat()
         logger.info("Cửa sổ %d ngày gần nhất -> từ %s", args.since_days, since)
 
     pending_filter = PendingFilter(since=since, job_url_contains=args.job)
