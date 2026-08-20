@@ -20,9 +20,10 @@ def test_loc_theo_ngay() -> None:
     built = _source()._build_filter(PendingFilter(since="2026-08-18"))
 
     assert built["and"][0]["property"] == "Resume Content"
+    # Có offset giờ VN — xem test_timezone_filter.py để biết vì sao.
     assert built["and"][1] == {
         "property": "Created time",
-        "created_time": {"on_or_after": "2026-08-18"},
+        "created_time": {"on_or_after": "2026-08-18T00:00:00+07:00"},
     }
 
 

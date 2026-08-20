@@ -85,9 +85,9 @@ class NotionApplicationSource(ApplicationSource):
         conditions: list[dict[str, Any]] = [
             {"property": CONTENT_PROPERTY, "rich_text": {"is_empty": True}}
         ]
-        if criteria.since:
+        if (since := criteria.since_for_notion) is not None:
             conditions.append(
-                {"property": CREATED_PROPERTY, "created_time": {"on_or_after": criteria.since}}
+                {"property": CREATED_PROPERTY, "created_time": {"on_or_after": since}}
             )
         if criteria.job_url_contains:
             conditions.append(
