@@ -31,6 +31,14 @@ button:disabled { opacity:.45; cursor:not-allowed; }
 input, select { width:100%; padding:10px 12px; border:1px solid var(--line);
                 border-radius:9px; background:transparent; color:var(--fg); }
 input[type=time] { width:auto; }
+.field { position:relative; }
+.field input { padding-right:44px; }
+.peek { position:absolute; right:6px; top:50%; transform:translateY(-50%);
+        width:32px; height:32px; margin:0; padding:0; display:flex;
+        align-items:center; justify-content:center; background:transparent;
+        border:0; border-radius:7px; color:var(--muted); cursor:pointer; }
+.peek:hover { color:var(--fg); }
+.peek svg { width:18px; height:18px; }
 .note { margin-top:14px; font-size:13px; color:var(--muted); }
 .alert { margin-top:14px; padding:12px 14px; border-radius:9px; font-size:13px;
          white-space:pre-line; border:1px solid var(--err); color:var(--err); }
@@ -41,6 +49,22 @@ hr { border:0; border-top:1px solid var(--line); margin:24px 0 18px; }
 .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
 .hint { color:var(--muted); font-size:12px; margin-top:8px; }
 """
+
+
+# Icon vẽ thẳng bằng SVG: không tải font icon hay ảnh từ ngoài, trang vẫn tự chứa.
+_EYE = (
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/>'
+    '<circle cx="12" cy="12" r="3"/></svg>'
+)
+_EYE_OFF = (
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    '<path d="M10.6 6.1A9.9 9.9 0 0 1 12 6c6.4 0 10 7 10 7a17 17 0 0 1-2.7 3.6"/>'
+    '<path d="M6.6 6.6A17 17 0 0 0 2 13s3.6 7 10 7a9.6 9.6 0 0 0 5-1.4"/>'
+    '<path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="m3 3 18 18"/></svg>'
+)
 
 
 def render_login(error: str = "") -> str:
@@ -54,11 +78,37 @@ def render_login(error: str = "") -> str:
   <p class="sub">Nhập mật khẩu để tiếp tục.</p>
   <form method="post" action="/admin/login">
     <label for="password">Mật khẩu</label>
-    <input id="password" name="password" type="password" autofocus required>
+    <div class="field">
+      <input id="password" name="password" type="password" autofocus required>
+      <button type="button" id="peek" class="peek"
+              aria-label="Hiện mật khẩu" aria-pressed="false" title="Hiện mật khẩu">
+        {_EYE}
+      </button>
+    </div>
     {problem}
     <button type="submit">Vào</button>
   </form>
-</div></body></html>"""
+</div>
+<script>
+const input = document.getElementById('password');
+const peek = document.getElementById('peek');
+const EYE = `{_EYE}`;
+const EYE_OFF = `{_EYE_OFF}`;
+
+peek.addEventListener('click', () => {{
+  const hidden = input.type === 'password';
+  input.type = hidden ? 'text' : 'password';
+  peek.innerHTML = hidden ? EYE_OFF : EYE;
+  peek.setAttribute('aria-pressed', String(hidden));
+  const label = hidden ? 'Ẩn mật khẩu' : 'Hiện mật khẩu';
+  peek.setAttribute('aria-label', label);
+  peek.title = label;
+  // Giữ con trỏ ở cuối chuỗi, tránh nhảy về đầu khi đổi type.
+  input.focus();
+  const end = input.value.length;
+  input.setSelectionRange(end, end);
+}});
+</script></body></html>"""
 
 
 def render_page() -> str:
