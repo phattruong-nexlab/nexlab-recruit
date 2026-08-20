@@ -149,3 +149,15 @@ async def test_loc_theo_ngay_va_job_duoc_truyen_xuong(app: Starlette) -> None:
     assert response.status_code == 200
     assert "2026-08-18" in response.json()["scope"]
     assert "junior-frontend" in response.json()["scope"]
+
+
+async def test_trang_login_co_nut_hien_mat_khau(app: Starlette) -> None:
+    """Nút phải là type=button — nếu không, bấm vào sẽ submit form."""
+    async with _client(app) as client:
+        html = (await client.get("/admin/login")).text
+
+    assert 'id="peek"' in html
+    assert 'type="button"' in html
+    assert 'aria-label="Hiện mật khẩu"' in html
+    assert 'type="password"' in html
+    assert "<svg" in html  # icon vẽ inline, không tải từ ngoài
