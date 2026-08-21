@@ -78,8 +78,40 @@ uv run mypy .
 cd infra
 terraform init -backend-config=envs/dev/backend.hcl
 terraform plan  -var-file=envs/dev/dev.tfvars
-terraform apply -var-file=envs/dev/dev.tfvars
 ```
+
+`terraform apply` không nằm ở đây: CD chạy nó sau khi merge. Xem mục Deploy bên dưới.
+
+## Deploy — KHÔNG được tự ý chạy tay
+
+Nguồn sự thật là `main`, không phải máy của ai. Deploy tay làm những gì đang chạy
+trên GCP khác với những gì có trong repo, và người sau đọc code sẽ hiểu sai.
+
+Luồng bắt buộc:
+
+```
+Claude push branch  →  người dùng review & merge  →  CD deploy  →  Claude verify
+```
+
+Claude **không** tự chạy các lệnh sau, kể cả khi "chỉ để kiểm tra nhanh":
+
+| Lệnh | Thay bằng |
+|---|---|
+| `gcloud builds submit` | để CD build |
+| `gcloud run deploy` / `services update` | để CD deploy |
+| `gcloud run jobs update` | để CD cập nhật job |
+| `terraform apply` | merge vào `develop`, CD tự apply |
+
+`.claude/settings.json` đặt bốn lệnh này vào `permissions.ask` để chặn ở tầng công cụ.
+Đó là lưới an toàn, không phải lý do để thử — rule này mới là điều phải theo, vì
+prefix matching có thể trượt khi lệnh nằm trong chuỗi nhiều câu.
+
+Ngoại lệ **duy nhất**: người dùng nói rõ trong lượt đó rằng muốn deploy tay.
+Được phép chạy `terraform plan`, `gcloud ... describe/list`, và gọi HTTP lên service
+đang chạy — đó là đọc, không phải ghi.
+
+Sau khi CD chạy xong, Claude verify bằng cách đối chiếu image digest đang phục vụ
+với commit vừa merge, rồi thử luồng thật trên URL production.
 
 ## Quy ước
 
@@ -97,5 +129,6 @@ terraform apply -var-file=envs/dev/dev.tfvars
 - Không import SDK bên ngoài vào `domain/`.
 - Không để trang `/admin` không có `ADMIN_PASSWORD` khi chạy ngoài local.
 - Không dùng mốc thời gian để nhớ đã xử lý tới đâu — lọc theo `Resume Content` rỗng.
+- Không tự deploy tay lên GCP — xem mục Deploy.
 - Không bỏ `ignore_changes = [schedule]` ở Cloud Scheduler — HR đổi giờ từ web,
   Terraform mà ghi đè thì giờ HR đặt biến mất trong im lặng.
