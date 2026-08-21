@@ -23,6 +23,7 @@ from app.application.ports.application_source import (
     PendingApplication,
     PendingFilter,
 )
+from app.domain.cv_files import is_cover_letter
 from app.domain.exceptions import DomainError
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,7 @@ class NotionApplicationSource(ApplicationSource):
         pending: list[PendingApplication] = []
 
         for page in await self._query(criteria):
-            file_url = _first_file_url(page)
+            file_url = _cv_file_url(page)
             if not file_url:  # chưa đính CV -> bỏ qua, lượt sau CV về thì làm
                 continue
 
@@ -119,14 +120,29 @@ class NotionApplicationSource(ApplicationSource):
             cursor = response["next_cursor"]
 
 
-def _first_file_url(page: dict[str, Any]) -> str | None:
-    """CV có thể là file Notion lưu, hoặc link external (Tally) — nhận cả hai."""
+def _cv_file_url(page: dict[str, Any]) -> str | None:
+    """URL của file CV, bỏ qua cover letter.
+
+    Cover letter thường được đính TRƯỚC CV, nên "lấy file đầu tiên" hay chọn nhầm.
+    Trả None khi cả cột chỉ có cover letter — dòng đó coi như chưa có CV.
+    """
     prop = page["properties"].get(CV_PROPERTY) or {}
+    skipped: list[str] = []
+
     for item in prop.get("files") or []:
         source = item.get("external") if item.get("type") == "external" else item.get("file")
         url = (source or {}).get("url")
-        if url:
-            return str(url)
+        if not url:
+            continue
+
+        name = item.get("name") or ""
+        if is_cover_letter(name):
+            skipped.append(name)
+            continue
+        return str(url)
+
+    if skipped:
+        logger.info("Bỏ qua cover letter, dòng không còn file nào khác: %s", ", ".join(skipped))
     return None
 
 
