@@ -74,7 +74,9 @@ uv run pytest
 
 ## Cấu hình bảng Notion
 
-Bảng nguồn cần đúng hai cột:
+Mỗi bảng nguồn cần đúng hai cột dưới đây (cộng `Created time` và `Job URL` để lọc).
+Khai nhiều bảng bằng cách ngăn cách id với dấu phẩy trong
+`NOTION_SOURCE_DATA_SOURCE_IDS`; luồng xử lý đọc song song rồi gộp kết quả.
 
 | Cột | Kiểu | Việc |
 |---|---|---|

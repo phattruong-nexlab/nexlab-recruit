@@ -7,7 +7,12 @@ Hướng dẫn cho Claude Code khi làm việc trong repo này.
 `nexlab-recruit` — service **scan CV** chạy theo lô trên Google Cloud.
 
 Cloud Run Job đọc CV của các đơn ứng tuyển rồi ghi text vào cột `Resume Content`
-của **chính dòng đó** trên bảng gốc. Chỉ một bảng Notion, không có bảng thứ hai.
+của **chính dòng đó** trên bảng gốc. Ghi ngược vào bảng nguồn, không có bảng đích
+riêng.
+
+Chạy song song trên **nhiều bảng nguồn** — khai trong `NOTION_SOURCE_DATA_SOURCE_IDS`,
+ngăn cách bằng dấu phẩy. Các bảng phải có cùng bốn cột: `Resume, CL`,
+`Resume Content`, `Created time`, `Job URL`.
 
 Chạy tự động lúc 2h sáng, hoặc HR bấm nút trên trang `/admin`.
 
