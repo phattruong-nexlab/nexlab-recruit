@@ -13,13 +13,13 @@ locals {
   app_secret_ids = [
     "notion-api-key",
     "admin-password",
-    "notion-source-data-source-id",
+    "notion-source-data-source-ids",
   ]
 
   # Secret nào gắn vào biến môi trường nào — service và job dùng CHUNG bộ này.
   app_secret_env_vars = {
-    NOTION_API_KEY               = module.secrets.secret_ids["notion-api-key"]
-    NOTION_SOURCE_DATA_SOURCE_ID = module.secrets.secret_ids["notion-source-data-source-id"]
-    ADMIN_PASSWORD               = module.secrets.secret_ids["admin-password"]
+    NOTION_API_KEY                = module.secrets.secret_ids["notion-api-key"]
+    NOTION_SOURCE_DATA_SOURCE_IDS = module.secrets.secret_ids["notion-source-data-source-ids"]
+    ADMIN_PASSWORD                = module.secrets.secret_ids["admin-password"]
   }
 }

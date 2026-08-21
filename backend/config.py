@@ -37,13 +37,15 @@ class Settings(BaseSettings):
 
     # --- Notion ---
     notion_api_key: str = ""
-    notion_source_data_source_id: str = ""
-    """Data source NGUỒN — bảng đơn ứng tuyển do Tally đổ vào."""
+    notion_source_data_source_ids: str = ""
+    """Các bảng nguồn, ngăn cách bằng dấu phẩy.
 
-    # Chỉ còn MỘT bảng: đọc CV và ghi text đều trên bảng nguồn.
+    Dùng chuỗi thay vì list để dễ đặt trong Secret Manager — biến môi trường kiểu
+    list của pydantic-settings đòi cú pháp JSON, bất tiện khi nạp bằng gcloud.
+    """
 
     scan_concurrency: int = 4
-    """Số dòng nhân bản song song. Notion ~3 req/s, mỗi dòng tốn ~5 lời gọi."""
+    """Số CV xử lý song song. Notion giới hạn ~3 request/giây."""
 
     # --- Trang quản trị cho HR ---
     cloud_run_job_name: str = ""
@@ -74,6 +76,13 @@ class Settings(BaseSettings):
 
     Rỗng = cho phép mọi host (chỉ nên dùng khi chạy local).
     """
+
+    @property
+    def source_data_source_ids(self) -> list[str]:
+        """Tách chuỗi thành danh sách, bỏ khoảng trắng thừa và mục rỗng."""
+        return [
+            part.strip() for part in self.notion_source_data_source_ids.split(",") if part.strip()
+        ]
 
 
 @lru_cache
