@@ -31,6 +31,9 @@ thành Markdown.
 - Chỉ trả về nội dung CV, không thêm lời dẫn.
 """
 
+# Gemini chỉ nhận PDF và ảnh; gửi docx sẽ bị trả 400 INVALID_ARGUMENT.
+_SUPPORTED_MIME_PREFIXES = ("application/pdf", "image/")
+
 
 class GeminiCvOcr(CvOcr):
     def __init__(
@@ -54,13 +57,20 @@ class GeminiCvOcr(CvOcr):
         logger.info("OCR qua Vertex AI: model=%s project=%s", model, project_id or "(từ ADC)")
 
     async def to_text(self, file: DownloadedFile) -> str:
+        mime_type = (file.content_type or "application/pdf").split(";")[0].strip().lower()
+        if not mime_type.startswith(_SUPPORTED_MIME_PREFIXES):
+            raise CvParsingError(
+                f"Không đọc được {file.filename!r} ({mime_type}): file không có text "
+                "và OCR chỉ hỗ trợ PDF hoặc ảnh."
+            )
+
         try:
             response = await self._client.aio.models.generate_content(
                 model=self._model,
                 contents=[
                     types.Part.from_bytes(
                         data=file.content,
-                        mime_type=file.content_type or "application/pdf",
+                        mime_type=mime_type,
                     ),
                     _PROMPT,
                 ],
